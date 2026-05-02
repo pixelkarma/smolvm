@@ -1,0 +1,42 @@
+{{define "settings.html"}}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{.Title}}</title>
+  {{template "styles" .}}
+</head>
+<body>
+  {{template "topnav" .}}
+  <main class="stack">
+    <div class="card" style="max-width: 900px;">
+      <div class="stack">
+        <h1 style="margin:0;">Settings</h1>
+        <p class="muted" style="margin:0;">Global prompt text is written to each instance at start time. Public host is used when generating app links in the admin UI.</p>
+        {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
+        {{if .Success}}<div class="success">{{.Success}}</div>{{end}}
+        <form method="post" class="stack">
+          <label>Public host or IP
+            <input type="text" name="public_host" value="{{.PublicHost}}" placeholder="192.168.64.41">
+          </label>
+          <label>System OpenAI key file
+            <input type="text" name="system_key_path" value="{{.SystemKeyPath}}" placeholder="/root/.openai">
+          </label>
+          <label>Global prompt
+            <textarea name="global_prompt">{{.GlobalPrompt}}</textarea>
+          </label>
+          <label>Change admin password
+            <input type="password" name="new_password" placeholder="Leave blank to keep current password">
+          </label>
+          <div class="actions">
+            <button type="submit">Save Settings</button>
+            <a class="btn secondary" href="/">Back</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </main>
+</body>
+</html>
+{{end}}

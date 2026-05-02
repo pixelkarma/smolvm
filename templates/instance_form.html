@@ -1,0 +1,76 @@
+{{define "instance_form.html"}}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{.Title}}</title>
+  {{template "styles" .}}
+</head>
+<body>
+  {{template "topnav" .}}
+  <main class="stack">
+    <div class="card">
+      <div class="stack">
+        <h1 style="margin:0;">New Instance</h1>
+        <p class="muted" style="margin:0;">Shelley stays private behind the admin. The project web port is published directly and defaults to the next free port starting at 8080.</p>
+        {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
+        <form method="post" class="stack" id="instance-form">
+          <div class="grid two">
+            <label>Name
+              <input type="text" name="name" id="name" value="{{.Instance.Name}}" required>
+            </label>
+            <label>Project web port
+              <input type="number" name="web_port" id="web_port" value="{{.Instance.WebPort}}" min="1" max="65535" required>
+            </label>
+            <label>Memory MB
+              <input type="number" name="memory_mb" id="memory_mb" value="{{.Instance.MemoryMB}}" min="128" required>
+            </label>
+            <label>CPU count
+              <input type="number" name="cpu_count" id="cpu_count" value="{{.Instance.CPUCount}}" min="1" required>
+            </label>
+            <label>Disk MB
+              <input type="number" name="disk_mb" id="disk_mb" value="{{.Instance.DiskMB}}" min="512" required>
+            </label>
+            <label>OpenAI key file on host
+              <input type="text" name="api_key_path" value="{{.Instance.APIKeyPath}}" placeholder="Blank uses {{.SystemKeyPath}}">
+            </label>
+          </div>
+          <label>Initial instance prompt
+            <textarea name="initial_prompt" id="initial_prompt">{{.Instance.InitialPrompt}}</textarea>
+          </label>
+          <div class="actions">
+            <button type="button" class="secondary" onclick="regeneratePrompt()">Regenerate Prompt</button>
+            <button type="submit">Create Instance</button>
+            <a class="btn secondary" href="/">Cancel</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </main>
+  <script>
+    function regeneratePrompt() {
+      const webPort = document.getElementById('web_port').value;
+      const cpu = document.getElementById('cpu_count').value;
+      const mem = document.getElementById('memory_mb').value;
+      const disk = document.getElementById('disk_mb').value;
+      document.getElementById('initial_prompt').value =
+`Instance environment:
+- OS: Alpine Linux
+- Architecture: arm64
+- Shelley private port: 9000
+- Project web port: ${webPort}
+- CPU limit: ${cpu}
+- Memory limit: ${mem} MB
+- Writable disk: ${disk} MB
+
+Instructions:
+- If you run a web app, bind it to 0.0.0.0:${webPort}
+- Assume users will reach the app over the assigned host port ${webPort}
+- Use Bash when needed, but keep Alpine compatibility in mind
+- Conserve memory and disk when selecting tooling and dependencies`;
+    }
+  </script>
+</body>
+</html>
+{{end}}

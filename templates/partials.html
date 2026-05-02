@@ -1,0 +1,47 @@
+{{define "styles"}}
+<style>
+  :root { color-scheme: light; }
+  body { font-family: ui-sans-serif, system-ui, sans-serif; margin: 0; background: #f4f6f8; color: #14202b; }
+  a { color: #0b5fff; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  header { background: #fff; border-bottom: 1px solid #d9e1e8; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; }
+  nav a { margin-left: 16px; }
+  main { max-width: 1100px; margin: 24px auto; padding: 0 20px; }
+  .card { background: #fff; border: 1px solid #d9e1e8; border-radius: 12px; padding: 20px; box-shadow: 0 1px 2px rgba(0,0,0,.03); }
+  .stack { display: grid; gap: 16px; }
+  .grid { display: grid; gap: 16px; }
+  .grid.two { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 12px 10px; border-bottom: 1px solid #eef2f6; vertical-align: top; }
+  th { font-size: 13px; color: #4d6378; text-transform: uppercase; letter-spacing: .04em; }
+  .status { display: inline-block; padding: 4px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; background: #eaf0f6; }
+  .status.running { background: #dbf6df; color: #0c6b2c; }
+  .status.exited, .status.missing { background: #ffe8e8; color: #9f2020; }
+  .status.created, .status.restarting { background: #fff5d7; color: #7c5a00; }
+  .btn, button { appearance: none; border: 0; border-radius: 10px; background: #0b5fff; color: #fff; padding: 10px 14px; cursor: pointer; font: inherit; }
+  .btn.secondary, button.secondary { background: #eef2f6; color: #14202b; }
+  .btn.danger, button.danger { background: #b42318; }
+  form.inline { display: inline; }
+  input, textarea { width: 100%; box-sizing: border-box; border: 1px solid #c7d2dc; border-radius: 10px; padding: 10px 12px; font: inherit; background: #fff; }
+  label { display: grid; gap: 6px; font-size: 14px; font-weight: 600; color: #334455; }
+  textarea { min-height: 220px; resize: vertical; }
+  .muted { color: #5c7186; font-size: 14px; }
+  .error { color: #9f2020; font-weight: 600; }
+  .success { color: #0c6b2c; font-weight: 600; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  pre { background: #0f1720; color: #e7edf3; padding: 16px; border-radius: 10px; overflow: auto; }
+</style>
+{{end}}
+
+{{define "topnav"}}
+<header>
+  <strong>smolvm</strong>
+  <nav>
+    <a href="/">Instances</a>
+    <a href="/instances/new">New Instance</a>
+    <a href="/settings">Settings</a>
+    <a href="/logout">Logout</a>
+  </nav>
+</header>
+{{end}}

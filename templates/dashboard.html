@@ -1,0 +1,72 @@
+{{define "dashboard.html"}}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{.Title}}</title>
+  {{template "styles" .}}
+</head>
+<body>
+  {{template "topnav" .}}
+  <main class="stack">
+    <div class="card">
+      <div class="actions" style="justify-content: space-between;">
+        <div>
+          <h1 style="margin:0 0 6px 0;">Shelley Instances</h1>
+          <div class="muted">Admin host: <span class="mono">{{.AdminHost}}</span>. Project web ports are public. Shelley is private behind this admin.</div>
+        </div>
+        <a class="btn" href="/instances/new">New Instance</a>
+      </div>
+    </div>
+    <div class="card">
+      {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
+      {{if .Instances}}
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Status</th>
+            <th>Resources</th>
+            <th>Ports</th>
+            <th>Links</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{range .Instances}}
+          <tr>
+            <td>
+              <div><strong>{{.Name}}</strong></div>
+              <div class="muted mono">{{.Slug}}</div>
+            </td>
+            <td><span class="status {{.Status}}">{{.Status}}</span></td>
+            <td>{{.MemoryMB}} MB, {{.CPUCount}} CPU, {{.DiskMB}} MB disk</td>
+            <td>
+              <div>App: <span class="mono">{{.WebPort}}</span></div>
+              <div class="muted">Shelley private: <span class="mono">{{.ShelleyPort}}</span></div>
+            </td>
+            <td>
+              <div><a href="{{.ShelleyURL}}">Open Shelley</a></div>
+              <div><a href="{{.AppURL}}" target="_blank" rel="noreferrer">Open App</a></div>
+              <div><a href="/instances/{{.ID}}/logs" target="_blank" rel="noreferrer">Logs</a></div>
+            </td>
+            <td>
+              <div class="actions">
+                <form class="inline" method="post" action="/instances/{{.ID}}/start"><button type="submit">Start</button></form>
+                <form class="inline" method="post" action="/instances/{{.ID}}/stop"><button class="secondary" type="submit">Stop</button></form>
+                <form class="inline" method="post" action="/instances/{{.ID}}/delete" onsubmit="return confirm('Delete this instance and all files?');"><button class="danger" type="submit">Delete</button></form>
+              </div>
+            </td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+      {{else}}
+      <div class="muted">No instances yet.</div>
+      {{end}}
+    </div>
+  </main>
+</body>
+</html>
+{{end}}

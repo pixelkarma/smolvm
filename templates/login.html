@@ -1,0 +1,28 @@
+{{define "login.html"}}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{.Title}}</title>
+  {{template "styles" .}}
+</head>
+<body>
+  <main>
+    <div class="card" style="max-width: 420px; margin: 64px auto;">
+      <div class="stack">
+        <h1 style="margin:0;">Admin Login</h1>
+        <p class="muted" style="margin:0;">Sign in to manage Shelley instances.</p>
+        {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
+        <form method="post" class="stack">
+          <label>Password
+            <input type="password" name="password" required autofocus>
+          </label>
+          <button type="submit">Login</button>
+        </form>
+      </div>
+    </div>
+  </main>
+</body>
+</html>
+{{end}}
