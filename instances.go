@@ -20,7 +20,7 @@ func (a *App) handleNewInstance(w http.ResponseWriter, r *http.Request) {
 		MemoryMB:   512,
 		CPUCount:   1,
 		DiskMB:     1024,
-		WebPort:    nextAvailablePort(instances, 8080, func(i Instance) int { return i.WebPort }),
+		WebPort:    nextAvailablePort(instances, 8100, func(i Instance) int { return i.WebPort }),
 		APIKeyPath: "",
 	}
 	defaultInst.InitialPrompt = buildInstancePrompt(defaultInst)
