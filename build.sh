@@ -50,6 +50,33 @@ say() {
   printf '\n==> %s\n' "$1"
 }
 
+ensure_swap() {
+  mem_kb=$(awk '/MemTotal:/ {print $2}' /proc/meminfo)
+  swap_kb=$(awk '/SwapTotal:/ {print $2}' /proc/meminfo)
+  min_mem_kb=$((2 * 1024 * 1024))
+  desired_swap_mb=${SMOLVM_SWAP_MB:-4096}
+  swapfile=${SMOLVM_SWAPFILE:-/swapfile-smolvm}
+
+  if [ "${mem_kb:-0}" -ge "$min_mem_kb" ] || [ "${swap_kb:-0}" -gt 0 ]; then
+    return
+  fi
+
+  say "Provisioning temporary swap for low-memory build host"
+  if [ ! -f "$swapfile" ]; then
+    if command -v fallocate >/dev/null 2>&1; then
+      fallocate -l "${desired_swap_mb}M" "$swapfile"
+    else
+      dd if=/dev/zero of="$swapfile" bs=1M count="$desired_swap_mb"
+    fi
+    chmod 600 "$swapfile"
+    mkswap "$swapfile"
+  fi
+
+  if ! swapon --show=NAME | grep -qx "$swapfile"; then
+    swapon "$swapfile"
+  fi
+}
+
 ensure_shelley_source() {
   if [ -f "$SHELLEY_DIR/go.mod" ]; then
     return
@@ -304,6 +331,8 @@ case "$OS_FAMILY" in
     start_docker_debian
     ;;
 esac
+
+ensure_swap
 
 ensure_shelley_source
 
