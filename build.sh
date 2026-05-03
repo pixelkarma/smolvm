@@ -3,10 +3,6 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 SMOLVM_DIR="$SCRIPT_DIR"
-SMOLVM_HOME=${SMOLVM_HOME:-/root/.smolvm}
-SMOLVM_BIN_DIR="$SMOLVM_HOME/bin"
-SMOLVM_DATA_DIR=${SMOLVM_DATA_DIR:-$SMOLVM_HOME/data}
-SMOLVM_CONFIG_PATH="$SMOLVM_HOME/smolvm.config.json"
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "build.sh must run as root" >&2
@@ -39,6 +35,30 @@ esac
 say() {
   printf '\n==> %s\n' "$1"
 }
+
+detect_host_home() {
+  if [ -n "${SMOLVM_HOME:-}" ]; then
+    printf '%s\n' "$SMOLVM_HOME"
+    return
+  fi
+  if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
+    user_home=$(getent passwd "$SUDO_USER" | awk -F: '{print $6}')
+    if [ -n "$user_home" ]; then
+      printf '%s/.smolvm\n' "$user_home"
+      return
+    fi
+  fi
+  if [ -n "${HOME:-}" ]; then
+    printf '%s/.smolvm\n' "$HOME"
+    return
+  fi
+  printf '%s\n' "/root/.smolvm"
+}
+
+SMOLVM_HOME=$(detect_host_home)
+SMOLVM_BIN_DIR="$SMOLVM_HOME/bin"
+SMOLVM_DATA_DIR=${SMOLVM_DATA_DIR:-$SMOLVM_HOME/data}
+SMOLVM_CONFIG_PATH="$SMOLVM_HOME/smolvm.config.json"
 
 ensure_swap() {
   mem_kb=$(awk '/MemTotal:/ {print $2}' /proc/meminfo)
@@ -150,12 +170,12 @@ EOF
 }
 
 write_openrc_service() {
-  cat > /etc/init.d/smolvm <<'EOF'
+  cat > /etc/init.d/smolvm <<EOF
 #!/sbin/openrc-run
 name="smolvm"
 description="smolvm admin"
-command="/root/.smolvm/bin/smolvm-admin"
-command_args="--config /root/.smolvm/smolvm.config.json"
+command="${SMOLVM_BIN_DIR}/smolvm-admin"
+command_args="--config ${SMOLVM_CONFIG_PATH}"
 command_background=true
 pidfile="/run/smolvm.pid"
 output_log="/var/log/smolvm/current.log"
@@ -167,14 +187,14 @@ depend() {
 }
 
 start_pre() {
-  checkpath --directory --owner root:root --mode 0755 /root/.smolvm /root/.smolvm/data /var/log/smolvm
+  checkpath --directory --owner root:root --mode 0755 ${SMOLVM_HOME} ${SMOLVM_DATA_DIR} /var/log/smolvm
 }
 EOF
   chmod 755 /etc/init.d/smolvm
 }
 
 write_systemd_service() {
-  cat > /etc/systemd/system/smolvm.service <<'EOF'
+  cat > /etc/systemd/system/smolvm.service <<EOF
 [Unit]
 Description=smolvm admin
 After=network-online.target docker.service
@@ -183,8 +203,8 @@ Requires=docker.service
 
 [Service]
 Type=simple
-WorkingDirectory=/root/.smolvm
-ExecStart=/root/.smolvm/bin/smolvm-admin --config /root/.smolvm/smolvm.config.json
+WorkingDirectory=${SMOLVM_HOME}
+ExecStart=${SMOLVM_BIN_DIR}/smolvm-admin --config ${SMOLVM_CONFIG_PATH}
 Restart=always
 RestartSec=2
 

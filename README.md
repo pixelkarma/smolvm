@@ -38,7 +38,7 @@ You still need to provide:
 The installer writes the runtime config to:
 
 ```sh
-/root/.smolvm/smolvm.config.json
+~/.smolvm/smolvm.config.json
 ```
 
 The important fields are:
@@ -46,8 +46,8 @@ The important fields are:
 ```json
 {
   "listen_addr": ":8090",
-  "data_dir": "/root/.smolvm/data",
-  "agent_binary_path": "/root/.smolvm/bin/smolagent-linux-aarch64",
+  "data_dir": "~/.smolvm/data",
+  "agent_binary_path": "~/.smolvm/bin/smolagent-linux-aarch64",
   "image_name": "smolvm-agent:latest",
   "public_host": "SERVER_IP",
   "default_openai_api_key": "sk-...",
@@ -108,9 +108,9 @@ Inside the container, the agent is told which app port to use. If it starts a we
 
 ## Service locations
 
-- config: `/root/.smolvm/smolvm.config.json`
-- binaries: `/root/.smolvm/bin`
-- data: `/root/.smolvm/data`
+- config: `~/.smolvm/smolvm.config.json`
+- binaries: `~/.smolvm/bin`
+- data: `~/.smolvm/data`
 
 - Alpine service: `/etc/init.d/smolvm`
 - Ubuntu/Debian service: `/etc/systemd/system/smolvm.service`
