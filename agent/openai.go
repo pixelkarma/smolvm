@@ -10,32 +10,51 @@ import (
 )
 
 type OpenAIClient struct {
-	client *openai.Client
-	model  string
+	clients map[string]*openai.Client
+	models  map[string]ModelSpec
 }
 
-func NewOpenAIClient(model string) (*OpenAIClient, error) {
-	key := strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
-	if key == "" {
-		return nil, fmt.Errorf("OPENAI_API_KEY is not set")
+func NewOpenAIClient(models []ModelSpec) (*OpenAIClient, error) {
+	clients := make(map[string]*openai.Client, len(models))
+	modelIndex := make(map[string]ModelSpec, len(models))
+	for _, model := range models {
+		envName := model.APIKeyEnv
+		if envName == "" {
+			envName = "OPENAI_API_KEY"
+		}
+		key := strings.TrimSpace(os.Getenv(envName))
+		if key == "" {
+			return nil, fmt.Errorf("%s is not set for model %s", envName, model.ID)
+		}
+		cfg := openai.DefaultConfig(key)
+		if model.BaseURL != "" {
+			cfg.BaseURL = model.BaseURL
+		}
+		clients[model.ID] = openai.NewClientWithConfig(cfg)
+		modelIndex[model.ID] = model
 	}
 	return &OpenAIClient{
-		client: openai.NewClient(key),
-		model:  model,
+		clients: clients,
+		models:  modelIndex,
 	}, nil
 }
 
 func (c *OpenAIClient) RunTurn(ctx context.Context, cfg Config, conv Conversation, history []Message, store *Store) (string, error) {
+	model, ok := c.models[conv.ModelID]
+	if !ok {
+		return "", fmt.Errorf("unknown model: %s", conv.ModelID)
+	}
+	client := c.clients[model.ID]
 	messages := buildChatMessages(cfg, conv.Cwd, history)
 	tools := toolDefinitions()
 
 	for i := 0; i < 8; i++ {
 		req := openai.ChatCompletionRequest{
-			Model:    c.model,
+			Model:    model.ID,
 			Messages: messages,
 			Tools:    tools,
 		}
-		resp, err := c.client.CreateChatCompletion(ctx, req)
+		resp, err := client.CreateChatCompletion(ctx, req)
 		if err != nil {
 			return "", err
 		}

@@ -28,11 +28,12 @@ type Server struct {
 }
 
 func NewServer(cfg Config) (*Server, error) {
+	cfg.Models = ResolveModels(cfg.Models, cfg.DefaultModel)
 	store, err := OpenStore(cfg.DBPath)
 	if err != nil {
 		return nil, err
 	}
-	oai, err := NewOpenAIClient(cfg.DefaultModel)
+	oai, err := NewOpenAIClient(cfg.Models)
 	if err != nil {
 		_ = store.Close()
 		return nil, err
@@ -115,6 +116,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	s.requireHeader(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = s.indexTmpl.Execute(w, map[string]any{
 			"DefaultModel": s.cfg.DefaultModel,
+			"Models":       s.cfg.Models,
 		})
 	})).ServeHTTP(w, r)
 }
@@ -140,17 +142,26 @@ func (s *Server) handleConversations(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, list)
 		case http.MethodPost:
 			var req struct {
-				Title string `json:"title"`
+				Title   string `json:"title"`
+				ModelID string `json:"model_id"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			modelID := strings.TrimSpace(req.ModelID)
+			if modelID == "" {
+				modelID = s.cfg.DefaultModel
+			}
+			if _, ok := FindModel(s.cfg.Models, modelID); !ok {
+				http.Error(w, "unknown model", http.StatusBadRequest)
 				return
 			}
 			title := strings.TrimSpace(req.Title)
 			if title == "" {
 				title = "conversation"
 			}
-			conv, err := s.store.CreateConversation(title, s.cfg.WorkspaceDir)
+			conv, err := s.store.CreateConversation(title, s.cfg.WorkspaceDir, modelID)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
@@ -185,11 +196,41 @@ func (s *Server) handleConversationByID(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		if len(parts) == 1 {
-			if r.Method != http.MethodGet {
+			switch r.Method {
+			case http.MethodGet:
+				writeJSON(w, conv)
+			case http.MethodPatch:
+				var req struct {
+					Title string `json:"title"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+				title := strings.TrimSpace(req.Title)
+				if title == "" {
+					http.Error(w, "title is required", http.StatusBadRequest)
+					return
+				}
+				if err := s.store.UpdateConversationTitle(id, title); err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+				updated, err := s.store.GetConversation(id)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+				writeJSON(w, updated)
+			case http.MethodDelete:
+				if err := s.store.DeleteConversation(id); err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+				w.WriteHeader(http.StatusNoContent)
+			default:
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-				return
 			}
-			writeJSON(w, conv)
 			return
 		}
 		if parts[1] != "messages" {
@@ -203,6 +244,13 @@ func (s *Server) handleConversationByID(w http.ResponseWriter, r *http.Request) 
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
+			msgs = append([]Message{{
+				ID:             0,
+				ConversationID: id,
+				Role:           "system",
+				Content:        BuildSystemPrompt(s.cfg, conv.Cwd),
+				CreatedAt:      conv.CreatedAt,
+			}}, msgs...)
 			writeJSON(w, msgs)
 		case http.MethodPost:
 			var req struct {

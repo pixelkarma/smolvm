@@ -11,21 +11,69 @@
       <aside class="sidebar">
         <div class="sidebar-head">
           <h1>smolagent</h1>
-          <button id="new-conversation" type="button">New</button>
+          <div class="sidebar-actions">
+            <button id="new-conversation" class="icon-button" type="button" aria-label="New conversation">
+              <span class="sr-only">New conversation</span>
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+            </button>
+            <button id="tray-close" class="tray-close icon-button" type="button" aria-label="Close conversations">
+              <span class="sr-only">Close conversations</span>
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M6 6l12 12M18 6 6 18" />
+              </svg>
+            </button>
+          </div>
         </div>
+        <label class="model-picker">
+          <span>Model</span>
+          <select id="model-select">
+            {{range .Models}}
+            <option value="{{.ID}}" {{if eq .ID $.DefaultModel}}selected{{end}}>{{.Label}}</option>
+            {{end}}
+          </select>
+        </label>
         <div id="conversation-list" class="conversation-list"></div>
       </aside>
       <main class="main">
         <header class="main-head">
-          <div>
-            <h2 id="conversation-title">Conversation</h2>
-            <p class="meta">Model: {{.DefaultModel}}</p>
+          <div class="main-head-left">
+            <button id="tray-toggle" class="tray-toggle icon-button" type="button" aria-label="Open conversations">
+              <span class="sr-only">Open conversations</span>
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 7h16M4 12h16M4 17h16" />
+              </svg>
+            </button>
+            <div>
+            <h2 id="conversation-title"></h2>
+            <p class="meta">Model: <span id="conversation-model">{{.DefaultModel}}</span></p>
+            </div>
+          </div>
+          <div class="header-actions">
+            <button id="rename-conversation" class="icon-button" type="button" aria-label="Rename conversation">
+              <span class="sr-only">Rename conversation</span>
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 20h4l10-10-4-4L4 16v4zM13 7l4 4" />
+              </svg>
+            </button>
+            <button id="delete-conversation" class="icon-button" type="button" aria-label="Delete conversation">
+              <span class="sr-only">Delete conversation</span>
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M6 6l12 12M18 6 6 18" />
+              </svg>
+            </button>
           </div>
         </header>
         <section id="messages" class="messages"></section>
         <form id="composer" class="composer">
           <textarea id="prompt" rows="5" placeholder="Ask the agent to inspect, edit, or run something."></textarea>
-          <button type="submit">Send</button>
+          <button class="icon-button" type="submit" aria-label="Send message">
+            <span class="sr-only">Send message</span>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 20 20 12 4 4l3 7 7 1-7 1-3 7z" />
+            </svg>
+          </button>
         </form>
       </main>
     </div>

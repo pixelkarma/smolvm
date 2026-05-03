@@ -21,6 +21,10 @@ func OpenStore(path string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
+	if _, err := db.Exec(`PRAGMA foreign_keys=ON;`); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	if err := migrateStore(db); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -34,11 +38,13 @@ func (s *Store) Close() error {
 
 func migrateStore(db *sql.DB) error {
 	stmts := []string{
+		`PRAGMA foreign_keys=ON;`,
 		`PRAGMA journal_mode=WAL;`,
 		`CREATE TABLE IF NOT EXISTS conversations (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			title TEXT NOT NULL,
 			cwd TEXT NOT NULL,
+			model_id TEXT NOT NULL DEFAULT 'gpt-5.4',
 			created_at TEXT NOT NULL,
 			updated_at TEXT NOT NULL
 		);`,
@@ -56,14 +62,15 @@ func migrateStore(db *sql.DB) error {
 			return err
 		}
 	}
+	_, _ = db.Exec(`ALTER TABLE conversations ADD COLUMN model_id TEXT NOT NULL DEFAULT 'gpt-5.4'`)
 	return nil
 }
 
-func (s *Store) CreateConversation(title, cwd string) (Conversation, error) {
+func (s *Store) CreateConversation(title, cwd, modelID string) (Conversation, error) {
 	now := time.Now().UTC()
 	res, err := s.db.Exec(
-		`INSERT INTO conversations(title, cwd, created_at, updated_at) VALUES(?, ?, ?, ?)`,
-		title, cwd, now.Format(time.RFC3339), now.Format(time.RFC3339),
+		`INSERT INTO conversations(title, cwd, model_id, created_at, updated_at) VALUES(?, ?, ?, ?, ?)`,
+		title, cwd, modelID, now.Format(time.RFC3339), now.Format(time.RFC3339),
 	)
 	if err != nil {
 		return Conversation{}, err
@@ -72,12 +79,12 @@ func (s *Store) CreateConversation(title, cwd string) (Conversation, error) {
 	if err != nil {
 		return Conversation{}, err
 	}
-	return Conversation{ID: id, Title: title, Cwd: cwd, CreatedAt: now, UpdatedAt: now}, nil
+	return Conversation{ID: id, Title: title, Cwd: cwd, ModelID: modelID, CreatedAt: now, UpdatedAt: now}, nil
 }
 
 func (s *Store) ListConversations() ([]Conversation, error) {
 	out := make([]Conversation, 0)
-	rows, err := s.db.Query(`SELECT id, title, cwd, created_at, updated_at FROM conversations ORDER BY updated_at DESC, id DESC`)
+	rows, err := s.db.Query(`SELECT id, title, cwd, model_id, created_at, updated_at FROM conversations ORDER BY updated_at DESC, id DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -85,7 +92,7 @@ func (s *Store) ListConversations() ([]Conversation, error) {
 	for rows.Next() {
 		var c Conversation
 		var created, updated string
-		if err := rows.Scan(&c.ID, &c.Title, &c.Cwd, &created, &updated); err != nil {
+		if err := rows.Scan(&c.ID, &c.Title, &c.Cwd, &c.ModelID, &created, &updated); err != nil {
 			return nil, err
 		}
 		c.CreatedAt, _ = time.Parse(time.RFC3339, created)
@@ -98,8 +105,8 @@ func (s *Store) ListConversations() ([]Conversation, error) {
 func (s *Store) GetConversation(id int64) (Conversation, error) {
 	var c Conversation
 	var created, updated string
-	err := s.db.QueryRow(`SELECT id, title, cwd, created_at, updated_at FROM conversations WHERE id = ?`, id).
-		Scan(&c.ID, &c.Title, &c.Cwd, &created, &updated)
+	err := s.db.QueryRow(`SELECT id, title, cwd, model_id, created_at, updated_at FROM conversations WHERE id = ?`, id).
+		Scan(&c.ID, &c.Title, &c.Cwd, &c.ModelID, &created, &updated)
 	if err != nil {
 		return Conversation{}, err
 	}
@@ -113,8 +120,18 @@ func (s *Store) TouchConversation(id int64) error {
 	return err
 }
 
+func (s *Store) UpdateConversationTitle(id int64, title string) error {
+	_, err := s.db.Exec(`UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?`, title, time.Now().UTC().Format(time.RFC3339), id)
+	return err
+}
+
 func (s *Store) UpdateConversationCwd(id int64, cwd string) error {
 	_, err := s.db.Exec(`UPDATE conversations SET cwd = ?, updated_at = ? WHERE id = ?`, cwd, time.Now().UTC().Format(time.RFC3339), id)
+	return err
+}
+
+func (s *Store) DeleteConversation(id int64) error {
+	_, err := s.db.Exec(`DELETE FROM conversations WHERE id = ?`, id)
 	return err
 }
 
