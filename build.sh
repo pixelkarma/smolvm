@@ -119,14 +119,27 @@ detect_shelley_binary_name() {
 build_shelley() {
   arch=$(uname -m)
   case "$arch" in
-    aarch64|arm64) target="build-linux-aarch64" ;;
-    x86_64|amd64) target="build-linux-x86" ;;
+    aarch64|arm64)
+      goarch=arm64
+      output="bin/shelley-linux-aarch64"
+      ;;
+    x86_64|amd64)
+      goarch=amd64
+      output="bin/shelley-linux-x86"
+      ;;
     *)
       echo "unsupported architecture: $arch" >&2
       exit 1
       ;;
   esac
-  make -C "$SHELLEY_DIR" "$target"
+  (
+    cd "$SHELLEY_DIR"
+    make ui templates
+    rm -rf ui/node_modules
+    pnpm store prune >/dev/null 2>&1 || true
+    rm -rf "${HOME:-/root}/.cache/pnpm" "${HOME:-/root}/.pnpm-store"
+    GOOS=linux GOARCH="$goarch" go build -p=1 -o "$output" ./cmd/shelley
+  )
 }
 
 install_packages_alpine() {
@@ -156,7 +169,7 @@ install_packages_debian() {
   say "Installing Debian/Ubuntu prerequisites"
   export DEBIAN_FRONTEND=noninteractive
   apt-get update
-  apt-get install -y \
+  apt-get install -y --no-install-recommends \
     bash \
     build-essential \
     ca-certificates \
@@ -176,6 +189,8 @@ install_packages_debian() {
   if ! command -v pnpm >/dev/null 2>&1; then
     npm install -g pnpm
   fi
+  apt-get clean
+  rm -rf /var/lib/apt/lists/*
 }
 
 start_docker_alpine() {
