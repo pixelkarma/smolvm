@@ -20,8 +20,8 @@
           <label>Public host or IP
             <input type="text" name="public_host" value="{{.PublicHost}}" placeholder="192.168.64.41">
           </label>
-          <label>System OpenAI key file
-            <input type="text" name="system_key_path" value="{{.SystemKeyPath}}" placeholder="/root/.openai">
+          <label>Default OpenAI API key
+            <input type="password" name="default_openai_api_key" value="{{.DefaultOpenAIAPIKey}}" placeholder="sk-...">
           </label>
           <label>Global prompt
             <textarea name="global_prompt">{{.GlobalPrompt}}</textarea>

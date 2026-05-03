@@ -18,7 +18,7 @@ Use tools when you need to inspect files, run commands, or change directories.`)
 		sections = append(sections, "Global guidance:\n"+strings.TrimSpace(cfg.GlobalPrompt))
 	}
 
-	if text := readPromptFile("/root/.config/smolagent/AGENTS.md"); text != "" {
+	if text := readPromptFile("/root/.smolvm/AGENTS.md"); text != "" {
 		sections = append(sections, "Container guidance:\n"+text)
 	}
 	if text := readPromptFile(filepath.Join(cfg.WorkspaceDir, "AGENTS.md")); text != "" {

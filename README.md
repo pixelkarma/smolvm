@@ -24,7 +24,7 @@ Optional overrides:
 ```sh
 SMOLVM_ADMIN_PASSWORD='change-this' \
 SMOLVM_PUBLIC_HOST='1.2.3.4' \
-SMOLVM_SYSTEM_KEY='/root/.openai' \
+SMOLVM_DEFAULT_OPENAI_API_KEY='sk-...' \
 ./build.sh
 ```
 
@@ -32,25 +32,27 @@ SMOLVM_SYSTEM_KEY='/root/.openai' \
 
 You still need to provide:
 
-- an OpenAI API key file on the host
+- an OpenAI API key
 - a real admin password if you do not want the default
 
-Default key path:
+The installer writes the runtime config to:
 
 ```sh
-/root/.openai
+/root/.smolvm/smolvm.config.json
 ```
 
-Accepted file contents:
+The important fields are:
 
-```sh
-sk-...
-```
-
-or:
-
-```sh
-OPENAI_API_KEY=sk-...
+```json
+{
+  "listen_addr": ":8090",
+  "data_dir": "/root/.smolvm/data",
+  "agent_binary_path": "/root/.smolvm/bin/smolagent-linux-aarch64",
+  "image_name": "smolvm-agent:latest",
+  "public_host": "SERVER_IP",
+  "default_openai_api_key": "sk-...",
+  "admin_password": "changeme"
+}
 ```
 
 Default admin URL:
@@ -73,6 +75,7 @@ Change it immediately in the admin UI.
 - The private agent UI is not meant to be exposed directly.
 - Each instance gets a private internal agent port, and the admin proxies it after login.
 - Each instance also gets a public app port, starting at `8100` and incrementing.
+- The agent runtime inside each container also reads `/root/.smolvm/smolvm.config.json`.
 
 Example:
 
@@ -89,7 +92,7 @@ Inside the container, the agent is told which app port to use. If it starts a we
 ## Capabilities
 
 - create, start, stop, and delete agent instances
-- set per-instance RAM, CPU, disk, app port, API key path, and prompt
+- set per-instance RAM, CPU, disk, app port, API key override, and prompt
 - inject a global prompt plus an instance prompt
 - mount a persistent workspace and agent state per instance
 - expose the instance app port directly
@@ -105,17 +108,9 @@ Inside the container, the agent is told which app port to use. If it starts a we
 
 ## Service locations
 
-Alpine:
+- config: `/root/.smolvm/smolvm.config.json`
+- binaries: `/root/.smolvm/bin`
+- data: `/root/.smolvm/data`
 
-- config: `/etc/conf.d/smolvm`
-- service: `/etc/init.d/smolvm`
-
-Ubuntu/Debian:
-
-- config: `/etc/default/smolvm`
-- service: `/etc/systemd/system/smolvm.service`
-
-Runtime files:
-
-- binaries: `/opt/smolvm/bin`
-- data: `/opt/smolvm/data`
+- Alpine service: `/etc/init.d/smolvm`
+- Ubuntu/Debian service: `/etc/systemd/system/smolvm.service`

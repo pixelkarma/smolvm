@@ -32,8 +32,8 @@
             <label>Disk MB
               <input type="number" name="disk_mb" id="disk_mb" value="{{.Instance.DiskMB}}" min="512" required>
             </label>
-            <label>OpenAI key file on host
-              <input type="text" name="api_key_path" value="{{.Instance.APIKeyPath}}" placeholder="Blank uses {{.SystemKeyPath}}">
+            <label>OpenAI API key override
+              <input type="password" name="api_key" value="{{.Instance.APIKey}}" placeholder="Blank uses configured default key">
             </label>
           </div>
           <label>Initial instance prompt

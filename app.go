@@ -77,8 +77,8 @@ func (a *App) initializeSettings() error {
 			return err
 		}
 	}
-	if settings.SystemKeyPath == "" {
-		if err := saveSetting(a.db, "system_key_path", a.cfg.SystemKeyPath); err != nil {
+	if settings.DefaultOpenAIAPIKey == "" {
+		if err := saveSetting(a.db, "default_openai_api_key", a.cfg.DefaultOpenAIAPIKey); err != nil {
 			return err
 		}
 	}
@@ -89,7 +89,7 @@ func (a *App) initializeSettings() error {
 	}
 	if settings.PasswordHash == "" {
 		if a.cfg.AdminPassword == "" {
-			return errors.New("admin password is not set; set SMOLVM_ADMIN_PASSWORD for first start")
+			return errors.New("admin password is not set; add admin_password to smolvm.config.json for first start")
 		}
 		hash, err := hashPassword(a.cfg.AdminPassword)
 		if err != nil {
@@ -187,12 +187,12 @@ func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	a.renderer.render(w, "dashboard.html", DashboardData{
-		Title:        "smolvm",
-		Auth:         true,
-		Instances:    views,
-		SystemKey:    settings.SystemKeyPath,
-		GlobalPrompt: settings.GlobalPrompt,
-		AdminHost:    settings.PublicHost,
+		Title:               "smolvm",
+		Auth:                true,
+		Instances:           views,
+		DefaultOpenAIAPIKey: settings.DefaultOpenAIAPIKey,
+		GlobalPrompt:        settings.GlobalPrompt,
+		AdminHost:           settings.PublicHost,
 	})
 }
 
@@ -203,10 +203,10 @@ func (a *App) handleSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data := SettingsData{
-		Title:         "Settings",
-		GlobalPrompt:  settings.GlobalPrompt,
-		SystemKeyPath: settings.SystemKeyPath,
-		PublicHost:    settings.PublicHost,
+		Title:               "Settings",
+		GlobalPrompt:        settings.GlobalPrompt,
+		DefaultOpenAIAPIKey: settings.DefaultOpenAIAPIKey,
+		PublicHost:          settings.PublicHost,
 	}
 	if r.Method == http.MethodGet {
 		a.renderer.render(w, "settings.html", data)
@@ -221,7 +221,7 @@ func (a *App) handleSettings(w http.ResponseWriter, r *http.Request) {
 		Key, Value string
 	}{
 		{"global_prompt", r.FormValue("global_prompt")},
-		{"system_key_path", strings.TrimSpace(r.FormValue("system_key_path"))},
+		{"default_openai_api_key", strings.TrimSpace(r.FormValue("default_openai_api_key"))},
 		{"public_host", strings.TrimSpace(r.FormValue("public_host"))},
 	} {
 		if err := saveSetting(a.db, kv.Key, kv.Value); err != nil {
@@ -245,7 +245,7 @@ func (a *App) handleSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	data.Success = "Settings saved"
 	data.GlobalPrompt = r.FormValue("global_prompt")
-	data.SystemKeyPath = strings.TrimSpace(r.FormValue("system_key_path"))
+	data.DefaultOpenAIAPIKey = strings.TrimSpace(r.FormValue("default_openai_api_key"))
 	data.PublicHost = strings.TrimSpace(r.FormValue("public_host"))
 	a.renderer.render(w, "settings.html", data)
 }
@@ -470,7 +470,7 @@ func (a *App) runtimeFor(inst Instance) InstanceRuntime {
 		DiskImagePath: filepath.Join(base, "disk.img"),
 		MountDir:      filepath.Join(base, "mnt"),
 		WorkspaceDir:  filepath.Join(base, "mnt", "workspace"),
-		RootConfigDir: filepath.Join(base, "mnt", "root-config"),
+		ConfigDir:     filepath.Join(base, "mnt", "root-smolvm"),
 		VarLibDir:     filepath.Join(base, "mnt", "varlib"),
 	}
 }

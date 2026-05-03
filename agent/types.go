@@ -3,20 +3,22 @@ package agent
 import "time"
 
 type Config struct {
-	ListenAddr     string
-	DBPath         string
-	WorkspaceDir   string
-	UIDir          string
-	GlobalPrompt   string
-	DefaultModel   string
-	RequiredHeader string
-	Models         []ModelSpec
+	ListenAddr     string      `json:"listen_addr"`
+	DBPath         string      `json:"db_path"`
+	WorkspaceDir   string      `json:"workspace_dir"`
+	UIDir          string      `json:"ui_dir,omitempty"`
+	GlobalPrompt   string      `json:"global_prompt,omitempty"`
+	DefaultModel   string      `json:"default_model"`
+	RequiredHeader string      `json:"required_header,omitempty"`
+	OpenAIAPIKey   string      `json:"openai_api_key,omitempty"`
+	Models         []ModelSpec `json:"models,omitempty"`
 }
 
 type ModelSpec struct {
 	ID        string `json:"id"`
 	Label     string `json:"label"`
 	BaseURL   string `json:"base_url,omitempty"`
+	APIKey    string `json:"api_key,omitempty"`
 	APIKeyEnv string `json:"api_key_env,omitempty"`
 }
 

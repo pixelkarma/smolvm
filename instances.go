@@ -16,20 +16,20 @@ func (a *App) handleNewInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defaultInst := Instance{
-		Name:       "instance",
-		MemoryMB:   512,
-		CPUCount:   1,
-		DiskMB:     1024,
-		WebPort:    nextAvailablePort(instances, 8100, func(i Instance) int { return i.WebPort }),
-		APIKeyPath: "",
+		Name:     "instance",
+		MemoryMB: 512,
+		CPUCount: 1,
+		DiskMB:   1024,
+		WebPort:  nextAvailablePort(instances, 8100, func(i Instance) int { return i.WebPort }),
+		APIKey:   "",
 	}
 	defaultInst.InitialPrompt = buildInstancePrompt(defaultInst)
 	data := InstanceFormData{
-		Title:          "New Instance",
-		Instance:       defaultInst,
-		GlobalPrompt:   settings.GlobalPrompt,
-		SystemKeyPath:  settings.SystemKeyPath,
-		DefaultWebPort: defaultInst.WebPort,
+		Title:               "New Instance",
+		Instance:            defaultInst,
+		GlobalPrompt:        settings.GlobalPrompt,
+		DefaultOpenAIAPIKey: settings.DefaultOpenAIAPIKey,
+		DefaultWebPort:      defaultInst.WebPort,
 	}
 	if r.Method == http.MethodGet {
 		a.renderer.render(w, "instance_form.html", data)

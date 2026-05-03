@@ -3,6 +3,10 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 SMOLVM_DIR="$SCRIPT_DIR"
+SMOLVM_HOME=${SMOLVM_HOME:-/root/.smolvm}
+SMOLVM_BIN_DIR="$SMOLVM_HOME/bin"
+SMOLVM_DATA_DIR=${SMOLVM_DATA_DIR:-$SMOLVM_HOME/data}
+SMOLVM_CONFIG_PATH="$SMOLVM_HOME/smolvm.config.json"
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "build.sh must run as root" >&2
@@ -121,25 +125,28 @@ build_binaries() {
 
 deploy_binaries() {
   say "Deploying binaries"
-  mkdir -p /opt/smolvm/bin /opt/smolvm/data
-  install -m 755 "$SMOLVM_DIR/bin/smolvm-admin" /opt/smolvm/bin/smolvm-admin
-  install -m 755 "$SMOLVM_DIR/bin/$(detect_agent_binary_name)" "/opt/smolvm/bin/$(detect_agent_binary_name)"
+  mkdir -p "$SMOLVM_BIN_DIR" "$SMOLVM_DATA_DIR"
+  install -m 755 "$SMOLVM_DIR/bin/smolvm-admin" "$SMOLVM_BIN_DIR/smolvm-admin"
+  install -m 755 "$SMOLVM_DIR/bin/$(detect_agent_binary_name)" "$SMOLVM_BIN_DIR/$(detect_agent_binary_name)"
 }
 
-write_openrc_env_file() {
+write_config_file() {
   admin_password=${SMOLVM_ADMIN_PASSWORD:-changeme}
   public_host=$(detect_public_host)
   agent_binary_name=$(detect_agent_binary_name)
-  cat > /etc/conf.d/smolvm <<EOF
-SMOLVM_LISTEN=${SMOLVM_LISTEN:-:8090}
-SMOLVM_DATA_DIR=${SMOLVM_DATA_DIR:-/opt/smolvm/data}
-SMOLVM_AGENT_BINARY=/opt/smolvm/bin/${agent_binary_name}
-SMOLVM_IMAGE=${SMOLVM_IMAGE:-smolvm-agent:latest}
-SMOLVM_PUBLIC_HOST=${public_host}
-SMOLVM_SYSTEM_KEY=${SMOLVM_SYSTEM_KEY:-/root/.openai}
-SMOLVM_ADMIN_PASSWORD=${admin_password}
+  mkdir -p "$SMOLVM_HOME"
+  cat > "$SMOLVM_CONFIG_PATH" <<EOF
+{
+  "listen_addr": "${SMOLVM_LISTEN:-:8090}",
+  "data_dir": "${SMOLVM_DATA_DIR}",
+  "agent_binary_path": "${SMOLVM_BIN_DIR}/${agent_binary_name}",
+  "image_name": "${SMOLVM_IMAGE:-smolvm-agent:latest}",
+  "public_host": "${public_host}",
+  "default_openai_api_key": "${SMOLVM_DEFAULT_OPENAI_API_KEY:-}",
+  "admin_password": "${admin_password}"
+}
 EOF
-  chmod 644 /etc/conf.d/smolvm
+  chmod 600 "$SMOLVM_CONFIG_PATH"
 }
 
 write_openrc_service() {
@@ -147,7 +154,8 @@ write_openrc_service() {
 #!/sbin/openrc-run
 name="smolvm"
 description="smolvm admin"
-command="/opt/smolvm/bin/smolvm-admin"
+command="/root/.smolvm/bin/smolvm-admin"
+command_args="--config /root/.smolvm/smolvm.config.json"
 command_background=true
 pidfile="/run/smolvm.pid"
 output_log="/var/log/smolvm/current.log"
@@ -159,27 +167,10 @@ depend() {
 }
 
 start_pre() {
-  checkpath --directory --owner root:root --mode 0755 /opt/smolvm/data /var/log/smolvm
-  export $(grep -v '^#' /etc/conf.d/smolvm | xargs)
+  checkpath --directory --owner root:root --mode 0755 /root/.smolvm /root/.smolvm/data /var/log/smolvm
 }
 EOF
   chmod 755 /etc/init.d/smolvm
-}
-
-write_systemd_env_file() {
-  admin_password=${SMOLVM_ADMIN_PASSWORD:-changeme}
-  public_host=$(detect_public_host)
-  agent_binary_name=$(detect_agent_binary_name)
-  cat > /etc/default/smolvm <<EOF
-SMOLVM_LISTEN=${SMOLVM_LISTEN:-:8090}
-SMOLVM_DATA_DIR=${SMOLVM_DATA_DIR:-/opt/smolvm/data}
-SMOLVM_AGENT_BINARY=/opt/smolvm/bin/${agent_binary_name}
-SMOLVM_IMAGE=${SMOLVM_IMAGE:-smolvm-agent:latest}
-SMOLVM_PUBLIC_HOST=${public_host}
-SMOLVM_SYSTEM_KEY=${SMOLVM_SYSTEM_KEY:-/root/.openai}
-SMOLVM_ADMIN_PASSWORD=${admin_password}
-EOF
-  chmod 644 /etc/default/smolvm
 }
 
 write_systemd_service() {
@@ -192,9 +183,8 @@ Requires=docker.service
 
 [Service]
 Type=simple
-EnvironmentFile=/etc/default/smolvm
-WorkingDirectory=/opt/smolvm
-ExecStart=/opt/smolvm/bin/smolvm-admin
+WorkingDirectory=/root/.smolvm
+ExecStart=/root/.smolvm/bin/smolvm-admin --config /root/.smolvm/smolvm.config.json
 Restart=always
 RestartSec=2
 
@@ -205,14 +195,14 @@ EOF
 
 configure_service_alpine() {
   say "Writing OpenRC service files"
-  write_openrc_env_file
+  write_config_file
   write_openrc_service
   rc-update add smolvm default >/dev/null 2>&1 || true
 }
 
 configure_service_debian() {
   say "Writing systemd service files"
-  write_systemd_env_file
+  write_config_file
   write_systemd_service
   systemctl daemon-reload
   systemctl enable smolvm
@@ -235,11 +225,10 @@ restart_service_debian() {
 print_summary() {
   public_host=$(detect_public_host)
   echo "Admin URL: http://${public_host}:8090/login"
+  echo "Config: $SMOLVM_CONFIG_PATH"
   if [ "$OS_FAMILY" = "alpine" ]; then
-    echo "Config: /etc/conf.d/smolvm"
     echo "Logs: /var/log/smolvm/current.log"
   else
-    echo "Config: /etc/default/smolvm"
     echo "Logs: journalctl -u smolvm -f"
   fi
 }

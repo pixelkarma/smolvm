@@ -49,7 +49,7 @@ Instructions:
 func parseInstanceForm(r *http.Request) (Instance, error) {
 	var inst Instance
 	inst.Name = strings.TrimSpace(r.FormValue("name"))
-	inst.APIKeyPath = strings.TrimSpace(r.FormValue("api_key_path"))
+	inst.APIKey = strings.TrimSpace(r.FormValue("api_key"))
 	inst.InitialPrompt = strings.TrimSpace(r.FormValue("initial_prompt"))
 	var err error
 	if inst.MemoryMB, err = strconv.Atoi(r.FormValue("memory_mb")); err != nil {

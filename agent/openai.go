@@ -14,17 +14,28 @@ type OpenAIClient struct {
 	models  map[string]ModelSpec
 }
 
-func NewOpenAIClient(models []ModelSpec) (*OpenAIClient, error) {
+func NewOpenAIClient(cfg Config) (*OpenAIClient, error) {
+	models := cfg.Models
 	clients := make(map[string]*openai.Client, len(models))
 	modelIndex := make(map[string]ModelSpec, len(models))
 	for _, model := range models {
+		key := strings.TrimSpace(model.APIKey)
 		envName := model.APIKeyEnv
-		if envName == "" {
-			envName = "OPENAI_API_KEY"
+		if key == "" && envName != "" {
+			key = strings.TrimSpace(os.Getenv(envName))
 		}
-		key := strings.TrimSpace(os.Getenv(envName))
 		if key == "" {
-			return nil, fmt.Errorf("%s is not set for model %s", envName, model.ID)
+			key = strings.TrimSpace(cfg.OpenAIAPIKey)
+		}
+		if key == "" && envName == "" {
+			key = strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
+		}
+		if key == "" {
+			source := "config openai_api_key"
+			if envName != "" {
+				source = envName
+			}
+			return nil, fmt.Errorf("%s is not set for model %s", source, model.ID)
 		}
 		cfg := openai.DefaultConfig(key)
 		if model.BaseURL != "" {

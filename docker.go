@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -22,21 +23,13 @@ func (a *App) ensureBaseImage() error {
 RUN apk add --no-cache bash ca-certificates curl git ripgrep tini
 COPY smolagent /usr/local/bin/smolagent
 COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /usr/local/bin/smolagent /entrypoint.sh && mkdir -p /var/lib/smolagent /workspace /root/.config/smolagent
+RUN chmod +x /usr/local/bin/smolagent /entrypoint.sh && mkdir -p /var/lib/smolagent /workspace /root/.smolvm
 WORKDIR /workspace
 EXPOSE 9000
 ENTRYPOINT ["/sbin/tini","--","/entrypoint.sh"]`
 	entrypoint := `#!/bin/sh
 set -eu
-KEY_FILE="${OPENAI_KEY_FILE:-/run/secrets/openai}"
-if [ -z "${OPENAI_API_KEY:-}" ] && [ -f "$KEY_FILE" ]; then
-  first_line=$(head -n 1 "$KEY_FILE" | tr -d '\r\n')
-  case "$first_line" in
-    OPENAI_API_KEY=*) export "$first_line" ;;
-    *) export OPENAI_API_KEY="$first_line" ;;
-  esac
-fi
-exec /usr/local/bin/smolagent --db /var/lib/smolagent/smolagent.db --workspace /workspace --model gpt-5.4 --require-header X-SmolVM-Admin --listen :9000`
+exec /usr/local/bin/smolagent --config /root/.smolvm/smolvm.config.json`
 	if err := os.WriteFile(filepath.Join(buildDir, "Dockerfile"), []byte(dockerfile), 0o644); err != nil {
 		return err
 	}
@@ -64,17 +57,32 @@ func (a *App) startInstance(inst Instance, settings Settings) error {
 	if err := os.WriteFile(filepath.Join(rt.WorkspaceDir, "AGENTS.md"), []byte(inst.InitialPrompt+"\n"), 0o644); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Join(rt.RootConfigDir, "smolagent"), 0o755); err != nil {
+	if err := os.MkdirAll(rt.ConfigDir, 0o755); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(rt.RootConfigDir, "smolagent", "AGENTS.md"), []byte(settings.GlobalPrompt+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(rt.ConfigDir, "AGENTS.md"), []byte(settings.GlobalPrompt+"\n"), 0o644); err != nil {
+		return err
+	}
+	agentCfg := map[string]any{
+		"listen_addr":     ":9000",
+		"db_path":         "/var/lib/smolagent/smolagent.db",
+		"workspace_dir":   "/workspace",
+		"default_model":   "gpt-5.4",
+		"required_header": "X-SmolVM-Admin",
+		"openai_api_key":  settings.DefaultOpenAIAPIKey,
+	}
+	if inst.APIKey != "" {
+		agentCfg["openai_api_key"] = inst.APIKey
+	}
+	data, err := json.MarshalIndent(agentCfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	if err := os.WriteFile(filepath.Join(rt.ConfigDir, "smolvm.config.json"), data, 0o600); err != nil {
 		return err
 	}
 	_ = dockerRemove(rt.ContainerName)
-	keyPath := inst.APIKeyPath
-	if keyPath == "" {
-		keyPath = settings.SystemKeyPath
-	}
 	args := []string{
 		"run", "-d",
 		"--name", rt.ContainerName,
@@ -88,10 +96,7 @@ func (a *App) startInstance(inst Instance, settings Settings) error {
 		"-e", fmt.Sprintf("PROJECT_WEB_PORT=%d", inst.WebPort),
 		"-v", fmt.Sprintf("%s:/var/lib/smolagent", rt.VarLibDir),
 		"-v", fmt.Sprintf("%s:/workspace", rt.WorkspaceDir),
-		"-v", fmt.Sprintf("%s:/root/.config", rt.RootConfigDir),
-	}
-	if keyPath != "" {
-		args = append(args, "-v", fmt.Sprintf("%s:/run/secrets/openai:ro", keyPath))
+		"-v", fmt.Sprintf("%s:/root/.smolvm", rt.ConfigDir),
 	}
 	args = append(args, a.cfg.ImageName)
 	return runCmd("", "docker", args...)
@@ -133,7 +138,7 @@ func ensureMountedDisk(rt InstanceRuntime, diskMB int) error {
 			return err
 		}
 	}
-	for _, dir := range []string{rt.VarLibDir, rt.WorkspaceDir, rt.RootConfigDir} {
+	for _, dir := range []string{rt.VarLibDir, rt.WorkspaceDir, rt.ConfigDir} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return err
 		}

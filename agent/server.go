@@ -33,7 +33,7 @@ func NewServer(cfg Config) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	oai, err := NewOpenAIClient(cfg.Models)
+	oai, err := NewOpenAIClient(cfg)
 	if err != nil {
 		_ = store.Close()
 		return nil, err

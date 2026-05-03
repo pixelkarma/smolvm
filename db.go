@@ -47,6 +47,7 @@ func migrate(db *sql.DB) error {
 			cpu_count INTEGER NOT NULL,
 			disk_mb INTEGER NOT NULL,
 			api_key_path TEXT NOT NULL DEFAULT '',
+			api_key TEXT NOT NULL DEFAULT '',
 			initial_prompt TEXT NOT NULL,
 			created_at TEXT NOT NULL,
 			updated_at TEXT NOT NULL
@@ -57,14 +58,15 @@ func migrate(db *sql.DB) error {
 			return err
 		}
 	}
+	_, _ = db.Exec(`ALTER TABLE instances ADD COLUMN api_key TEXT NOT NULL DEFAULT ''`)
 	return nil
 }
 
 func loadSettings(db *sql.DB, cfg Config) (Settings, error) {
 	s := Settings{
-		GlobalPrompt:  defaultGlobalPrompt(),
-		SystemKeyPath: cfg.SystemKeyPath,
-		PublicHost:    cfg.PublicHost,
+		GlobalPrompt:        defaultGlobalPrompt(),
+		DefaultOpenAIAPIKey: cfg.DefaultOpenAIAPIKey,
+		PublicHost:          cfg.PublicHost,
 	}
 	rows, err := db.Query(`SELECT key, value FROM settings`)
 	if err != nil {
@@ -83,8 +85,10 @@ func loadSettings(db *sql.DB, cfg Config) (Settings, error) {
 			s.SessionKey = value
 		case "global_prompt":
 			s.GlobalPrompt = value
+		case "default_openai_api_key":
+			s.DefaultOpenAIAPIKey = value
 		case "system_key_path":
-			s.SystemKeyPath = value
+			s.DefaultOpenAIAPIKey = value
 		case "public_host":
 			s.PublicHost = value
 		}
@@ -103,9 +107,9 @@ func insertInstance(db *sql.DB, inst *Instance) error {
 	inst.CreatedAt = now
 	inst.UpdatedAt = now
 	res, err := db.Exec(`INSERT INTO instances
-		(name, slug, shelley_port, web_port, memory_mb, cpu_count, disk_mb, api_key_path, initial_prompt, created_at, updated_at)
+		(name, slug, shelley_port, web_port, memory_mb, cpu_count, disk_mb, api_key, initial_prompt, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		inst.Name, inst.Slug, inst.ShelleyPort, inst.WebPort, inst.MemoryMB, inst.CPUCount, inst.DiskMB, inst.APIKeyPath, inst.InitialPrompt,
+		inst.Name, inst.Slug, inst.ShelleyPort, inst.WebPort, inst.MemoryMB, inst.CPUCount, inst.DiskMB, inst.APIKey, inst.InitialPrompt,
 		inst.CreatedAt.Format(time.RFC3339), inst.UpdatedAt.Format(time.RFC3339))
 	if err != nil {
 		return err
@@ -120,7 +124,7 @@ func deleteInstanceRecord(db *sql.DB, id int64) error {
 }
 
 func listInstances(db *sql.DB) ([]Instance, error) {
-	rows, err := db.Query(`SELECT id, name, slug, shelley_port, web_port, memory_mb, cpu_count, disk_mb, api_key_path, initial_prompt, created_at, updated_at
+	rows, err := db.Query(`SELECT id, name, slug, shelley_port, web_port, memory_mb, cpu_count, disk_mb, COALESCE(api_key, api_key_path, ''), initial_prompt, created_at, updated_at
 		FROM instances ORDER BY id ASC`)
 	if err != nil {
 		return nil, err
@@ -130,7 +134,7 @@ func listInstances(db *sql.DB) ([]Instance, error) {
 	for rows.Next() {
 		var inst Instance
 		var created, updated string
-		if err := rows.Scan(&inst.ID, &inst.Name, &inst.Slug, &inst.ShelleyPort, &inst.WebPort, &inst.MemoryMB, &inst.CPUCount, &inst.DiskMB, &inst.APIKeyPath, &inst.InitialPrompt, &created, &updated); err != nil {
+		if err := rows.Scan(&inst.ID, &inst.Name, &inst.Slug, &inst.ShelleyPort, &inst.WebPort, &inst.MemoryMB, &inst.CPUCount, &inst.DiskMB, &inst.APIKey, &inst.InitialPrompt, &created, &updated); err != nil {
 			return nil, err
 		}
 		inst.CreatedAt, _ = time.Parse(time.RFC3339, created)
@@ -143,9 +147,9 @@ func listInstances(db *sql.DB) ([]Instance, error) {
 func getInstance(db *sql.DB, id int64) (Instance, error) {
 	var inst Instance
 	var created, updated string
-	err := db.QueryRow(`SELECT id, name, slug, shelley_port, web_port, memory_mb, cpu_count, disk_mb, api_key_path, initial_prompt, created_at, updated_at
+	err := db.QueryRow(`SELECT id, name, slug, shelley_port, web_port, memory_mb, cpu_count, disk_mb, COALESCE(api_key, api_key_path, ''), initial_prompt, created_at, updated_at
 		FROM instances WHERE id = ?`, id).
-		Scan(&inst.ID, &inst.Name, &inst.Slug, &inst.ShelleyPort, &inst.WebPort, &inst.MemoryMB, &inst.CPUCount, &inst.DiskMB, &inst.APIKeyPath, &inst.InitialPrompt, &created, &updated)
+		Scan(&inst.ID, &inst.Name, &inst.Slug, &inst.ShelleyPort, &inst.WebPort, &inst.MemoryMB, &inst.CPUCount, &inst.DiskMB, &inst.APIKey, &inst.InitialPrompt, &created, &updated)
 	if err != nil {
 		return inst, err
 	}

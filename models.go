@@ -3,14 +3,14 @@ package main
 import "time"
 
 type Config struct {
-	ListenAddr      string
-	DataDir         string
-	DBPath          string
-	AgentBinaryPath string
-	ImageName       string
-	PublicHost      string
-	SystemKeyPath   string
-	AdminPassword   string
+	ListenAddr          string `json:"listen_addr"`
+	DataDir             string `json:"data_dir"`
+	DBPath              string `json:"db_path"`
+	AgentBinaryPath     string `json:"agent_binary_path"`
+	ImageName           string `json:"image_name"`
+	PublicHost          string `json:"public_host"`
+	DefaultOpenAIAPIKey string `json:"default_openai_api_key"`
+	AdminPassword       string `json:"admin_password"`
 }
 
 type Instance struct {
@@ -22,18 +22,18 @@ type Instance struct {
 	MemoryMB      int
 	CPUCount      int
 	DiskMB        int
-	APIKeyPath    string
+	APIKey        string
 	InitialPrompt string
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 }
 
 type Settings struct {
-	PasswordHash  string
-	SessionKey    string
-	GlobalPrompt  string
-	SystemKeyPath string
-	PublicHost    string
+	PasswordHash        string
+	SessionKey          string
+	GlobalPrompt        string
+	DefaultOpenAIAPIKey string
+	PublicHost          string
 }
 
 type InstanceRuntime struct {
@@ -42,18 +42,18 @@ type InstanceRuntime struct {
 	DiskImagePath string
 	MountDir      string
 	WorkspaceDir  string
-	RootConfigDir string
+	ConfigDir     string
 	VarLibDir     string
 }
 
 type DashboardData struct {
-	Title        string
-	Auth         bool
-	Instances    []InstanceView
-	SystemKey    string
-	GlobalPrompt string
-	AdminHost    string
-	Error        string
+	Title               string
+	Auth                bool
+	Instances           []InstanceView
+	DefaultOpenAIAPIKey string
+	GlobalPrompt        string
+	AdminHost           string
+	Error               string
 }
 
 type InstanceView struct {
@@ -65,13 +65,13 @@ type InstanceView struct {
 }
 
 type InstanceFormData struct {
-	Title          string
-	Instance       Instance
-	GlobalPrompt   string
-	SystemKeyPath  string
-	DefaultWebPort int
-	Error          string
-	IsEdit         bool
+	Title               string
+	Instance            Instance
+	GlobalPrompt        string
+	DefaultOpenAIAPIKey string
+	DefaultWebPort      int
+	Error               string
+	IsEdit              bool
 }
 
 type LoginData struct {
@@ -80,10 +80,10 @@ type LoginData struct {
 }
 
 type SettingsData struct {
-	Title         string
-	GlobalPrompt  string
-	SystemKeyPath string
-	PublicHost    string
-	Error         string
-	Success       string
+	Title               string
+	GlobalPrompt        string
+	DefaultOpenAIAPIKey string
+	PublicHost          string
+	Error               string
+	Success             string
 }
