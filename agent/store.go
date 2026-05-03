@@ -76,12 +76,12 @@ func (s *Store) CreateConversation(title, cwd string) (Conversation, error) {
 }
 
 func (s *Store) ListConversations() ([]Conversation, error) {
+	out := make([]Conversation, 0)
 	rows, err := s.db.Query(`SELECT id, title, cwd, created_at, updated_at FROM conversations ORDER BY updated_at DESC, id DESC`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []Conversation
 	for rows.Next() {
 		var c Conversation
 		var created, updated string
@@ -138,12 +138,12 @@ func (s *Store) AddMessage(conversationID int64, role, content string) (Message,
 }
 
 func (s *Store) ListMessages(conversationID int64) ([]Message, error) {
+	out := make([]Message, 0)
 	rows, err := s.db.Query(`SELECT id, conversation_id, role, content, created_at FROM messages WHERE conversation_id = ? ORDER BY id ASC`, conversationID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []Message
 	for rows.Next() {
 		var m Message
 		var created string

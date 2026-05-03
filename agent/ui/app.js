@@ -27,6 +27,7 @@ function escapeHtml(text) {
 }
 
 function renderMessages(items) {
+  items = Array.isArray(items) ? items : [];
   messagesEl.innerHTML = items.map((item) => `
     <article class="message message-${item.role}">
       <div class="role">${item.role}</div>
@@ -37,7 +38,8 @@ function renderMessages(items) {
 }
 
 async function loadConversations() {
-  const items = await api("api/conversations");
+  const raw = await api("api/conversations");
+  const items = Array.isArray(raw) ? raw : [];
   conversationList.innerHTML = items.map((item) => `
     <button class="conversation-item${item.id === currentConversationId ? " active" : ""}" data-id="${item.id}">
       <strong>${escapeHtml(item.title)}</strong>
