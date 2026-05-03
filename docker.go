@@ -11,8 +11,8 @@ import (
 )
 
 func (a *App) ensureBaseImage() error {
-	if _, err := os.Stat(a.cfg.ShelleyBinaryPath); err != nil {
-		return fmt.Errorf("shelley binary not found at %s", a.cfg.ShelleyBinaryPath)
+	if _, err := os.Stat(a.cfg.AgentBinaryPath); err != nil {
+		return fmt.Errorf("smolagent binary not found at %s", a.cfg.AgentBinaryPath)
 	}
 	buildDir := filepath.Join(a.cfg.DataDir, "image-build")
 	if err := os.MkdirAll(buildDir, 0o755); err != nil {
@@ -20,9 +20,9 @@ func (a *App) ensureBaseImage() error {
 	}
 	dockerfile := `FROM alpine:3.23
 RUN apk add --no-cache bash ca-certificates curl git ripgrep tini
-COPY shelley /usr/local/bin/shelley
+COPY smolagent /usr/local/bin/smolagent
 COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /usr/local/bin/shelley /entrypoint.sh && mkdir -p /var/lib/shelley /workspace /root/.config/shelley
+RUN chmod +x /usr/local/bin/smolagent /entrypoint.sh && mkdir -p /var/lib/smolagent /workspace /root/.config/smolagent
 WORKDIR /workspace
 EXPOSE 9000
 ENTRYPOINT ["/sbin/tini","--","/entrypoint.sh"]`
@@ -36,18 +36,18 @@ if [ -z "${OPENAI_API_KEY:-}" ] && [ -f "$KEY_FILE" ]; then
     *) export OPENAI_API_KEY="$first_line" ;;
   esac
 fi
-exec /usr/local/bin/shelley --db /var/lib/shelley/shelley.db --default-model gpt-5.4 serve -port 9000 --require-header X-SmolVM-Admin`
+exec /usr/local/bin/smolagent --db /var/lib/smolagent/smolagent.db --workspace /workspace --model gpt-5.4 --require-header X-SmolVM-Admin --listen :9000`
 	if err := os.WriteFile(filepath.Join(buildDir, "Dockerfile"), []byte(dockerfile), 0o644); err != nil {
 		return err
 	}
 	if err := os.WriteFile(filepath.Join(buildDir, "entrypoint.sh"), []byte(entrypoint), 0o755); err != nil {
 		return err
 	}
-	in, err := os.ReadFile(a.cfg.ShelleyBinaryPath)
+	in, err := os.ReadFile(a.cfg.AgentBinaryPath)
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(buildDir, "shelley"), in, 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(buildDir, "smolagent"), in, 0o755); err != nil {
 		return err
 	}
 	return runCmd("", "docker", "build", "-t", a.cfg.ImageName, buildDir)
@@ -64,10 +64,10 @@ func (a *App) startInstance(inst Instance, settings Settings) error {
 	if err := os.WriteFile(filepath.Join(rt.WorkspaceDir, "AGENTS.md"), []byte(inst.InitialPrompt+"\n"), 0o644); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Join(rt.RootConfigDir, "shelley"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(rt.RootConfigDir, "smolagent"), 0o755); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(rt.RootConfigDir, "shelley", "AGENTS.md"), []byte(settings.GlobalPrompt+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(rt.RootConfigDir, "smolagent", "AGENTS.md"), []byte(settings.GlobalPrompt+"\n"), 0o644); err != nil {
 		return err
 	}
 	_ = dockerRemove(rt.ContainerName)
@@ -86,7 +86,7 @@ func (a *App) startInstance(inst Instance, settings Settings) error {
 		"-p", fmt.Sprintf("127.0.0.1:%d:9000", inst.ShelleyPort),
 		"-p", fmt.Sprintf("%d:%d", inst.WebPort, inst.WebPort),
 		"-e", fmt.Sprintf("PROJECT_WEB_PORT=%d", inst.WebPort),
-		"-v", fmt.Sprintf("%s:/var/lib/shelley", rt.VarLibDir),
+		"-v", fmt.Sprintf("%s:/var/lib/smolagent", rt.VarLibDir),
 		"-v", fmt.Sprintf("%s:/workspace", rt.WorkspaceDir),
 		"-v", fmt.Sprintf("%s:/root/.config", rt.RootConfigDir),
 	}

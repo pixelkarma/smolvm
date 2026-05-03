@@ -3,14 +3,14 @@ package main
 import "time"
 
 type Config struct {
-	ListenAddr        string
-	DataDir           string
-	DBPath            string
-	ShelleyBinaryPath string
-	ImageName         string
-	PublicHost        string
-	SystemKeyPath     string
-	AdminPassword     string
+	ListenAddr      string
+	DataDir         string
+	DBPath          string
+	AgentBinaryPath string
+	ImageName       string
+	PublicHost      string
+	SystemKeyPath   string
+	AdminPassword   string
 }
 
 type Instance struct {

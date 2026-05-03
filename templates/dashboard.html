@@ -13,8 +13,8 @@
     <div class="card">
       <div class="actions" style="justify-content: space-between;">
         <div>
-          <h1 style="margin:0 0 6px 0;">Shelley Instances</h1>
-          <div class="muted">Admin host: <span class="mono">{{.AdminHost}}</span>. Project web ports are public. Shelley is private behind this admin.</div>
+          <h1 style="margin:0 0 6px 0;">Agent Instances</h1>
+          <div class="muted">Admin host: <span class="mono">{{.AdminHost}}</span>. Project web ports are public. The private agent UI stays behind this admin.</div>
         </div>
         <a class="btn" href="/instances/new">New Instance</a>
       </div>
@@ -44,10 +44,10 @@
             <td>{{.MemoryMB}} MB, {{.CPUCount}} CPU, {{.DiskMB}} MB disk</td>
             <td>
               <div>App: <span class="mono">{{.WebPort}}</span></div>
-              <div class="muted">Shelley private: <span class="mono">{{.ShelleyPort}}</span></div>
+              <div class="muted">Agent private: <span class="mono">{{.ShelleyPort}}</span></div>
             </td>
             <td>
-              <div><a href="{{.ShelleyURL}}">Open Shelley</a></div>
+              <div><a href="{{.ShelleyURL}}">Open Agent</a></div>
               <div><a href="{{.AppURL}}" target="_blank" rel="noreferrer">Open App</a></div>
               <div><a href="/instances/{{.ID}}/logs" target="_blank" rel="noreferrer">Logs</a></div>
             </td>

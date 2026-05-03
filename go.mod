@@ -3,6 +3,7 @@ module smolvm
 go 1.24.0
 
 require (
+	github.com/sashabaranov/go-openai v1.41.2
 	golang.org/x/crypto v0.43.0
 	modernc.org/sqlite v1.39.1
 )

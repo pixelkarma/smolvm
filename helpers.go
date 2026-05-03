@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 )
@@ -23,7 +24,7 @@ func defaultGlobalPrompt() string {
 	return `Global smolvm guidance:
 - You are running inside a managed Alpine Linux container.
 - The admin system exposes your project web server directly on the assigned project web port.
-- Shelley itself is private behind the admin proxy. Do not ask the user to browse the raw Shelley port.
+- The agent UI itself is private behind the admin proxy. Do not ask the user to browse the raw private agent port.
 - Prefer lightweight dependencies and workflows appropriate for Alpine Linux.
 - Be mindful of the assigned CPU, RAM, and disk limits.`
 }
@@ -31,8 +32,8 @@ func defaultGlobalPrompt() string {
 func buildInstancePrompt(inst Instance) string {
 	return fmt.Sprintf(`Instance environment:
 - OS: Alpine Linux
-- Architecture: arm64
-- Shelley private port: 9000
+- Architecture: %s
+- Private agent port: 9000
 - Project web port: %d
 - CPU limit: %d
 - Memory limit: %d MB
@@ -42,7 +43,7 @@ Instructions:
 - If you run a web app, bind it to 0.0.0.0:%d
 - Assume users will reach the app over the assigned host port %d
 - Use Bash when needed, but keep Alpine compatibility in mind
-- Conserve memory and disk when selecting tooling and dependencies`, inst.WebPort, inst.CPUCount, inst.MemoryMB, inst.DiskMB, inst.WebPort, inst.WebPort)
+- Conserve memory and disk when selecting tooling and dependencies`, runtime.GOARCH, inst.WebPort, inst.CPUCount, inst.MemoryMB, inst.DiskMB, inst.WebPort, inst.WebPort)
 }
 
 func parseInstanceForm(r *http.Request) (Instance, error) {
@@ -85,6 +86,16 @@ func rewriteShelleyResponse(resp *http.Response, id int64) error {
 	rewritten := strings.ReplaceAll(string(body), "/api/", prefix+"/api/")
 	rewritten = strings.ReplaceAll(rewritten, `"/api`, `"`+prefix+`/api`)
 	rewritten = strings.ReplaceAll(rewritten, `'/api`, `'`+prefix+`/api`)
+	rewritten = strings.ReplaceAll(rewritten, `"/version-check`, `"`+prefix+`/version-check`)
+	rewritten = strings.ReplaceAll(rewritten, `'/version-check`, `'`+prefix+`/version-check`)
+	rewritten = strings.ReplaceAll(rewritten, `"/diffs-worker.js`, `"`+prefix+`/diffs-worker.js`)
+	rewritten = strings.ReplaceAll(rewritten, `'/diffs-worker.js`, `'`+prefix+`/diffs-worker.js`)
+	rewritten = strings.ReplaceAll(rewritten, `"/monaco-editor.js`, `"`+prefix+`/monaco-editor.js`)
+	rewritten = strings.ReplaceAll(rewritten, `'/monaco-editor.js`, `'`+prefix+`/monaco-editor.js`)
+	rewritten = strings.ReplaceAll(rewritten, `"/monaco-editor.css`, `"`+prefix+`/monaco-editor.css`)
+	rewritten = strings.ReplaceAll(rewritten, `'/monaco-editor.css`, `'`+prefix+`/monaco-editor.css`)
+	rewritten = strings.ReplaceAll(rewritten, `"/editor.worker.js`, `"`+prefix+`/editor.worker.js`)
+	rewritten = strings.ReplaceAll(rewritten, `'/editor.worker.js`, `'`+prefix+`/editor.worker.js`)
 	repl := strings.NewReplacer(
 		`href="/`, `href="`+prefix+`/`,
 		`src="/`, `src="`+prefix+`/`,

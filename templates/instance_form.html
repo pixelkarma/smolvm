@@ -13,7 +13,7 @@
     <div class="card">
       <div class="stack">
         <h1 style="margin:0;">New Instance</h1>
-        <p class="muted" style="margin:0;">Shelley stays private behind the admin. The project web port is published directly and defaults to the next free port starting at 8100.</p>
+        <p class="muted" style="margin:0;">The agent UI stays private behind the admin. The project web port is published directly and defaults to the next free port starting at 8100.</p>
         {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
         <form method="post" class="stack" id="instance-form">
           <div class="grid two">
@@ -58,7 +58,7 @@
 `Instance environment:
 - OS: Alpine Linux
 - Architecture: arm64
-- Shelley private port: 9000
+- Private agent port: 9000
 - Project web port: ${webPort}
 - CPU limit: ${cpu}
 - Memory limit: ${mem} MB

@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>smolagent</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="sidebar-head">
+          <h1>smolagent</h1>
+          <button id="new-conversation" type="button">New</button>
+        </div>
+        <div id="conversation-list" class="conversation-list"></div>
+      </aside>
+      <main class="main">
+        <header class="main-head">
+          <div>
+            <h2 id="conversation-title">Conversation</h2>
+            <p class="meta">Model: {{.DefaultModel}}</p>
+          </div>
+        </header>
+        <section id="messages" class="messages"></section>
+        <form id="composer" class="composer">
+          <textarea id="prompt" rows="5" placeholder="Ask the agent to inspect, edit, or run something."></textarea>
+          <button type="submit">Send</button>
+        </form>
+      </main>
+    </div>
+    <script type="module" src="app.js"></script>
+  </body>
+  </html>

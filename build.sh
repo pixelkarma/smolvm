@@ -2,13 +2,7 @@
 set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-REPO_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
-SHELLEY_DIR="${SHELLEY_SOURCE_DIR:-$REPO_ROOT/shelley}"
 SMOLVM_DIR="$SCRIPT_DIR"
-SHELLEY_GIT_URL="${SHELLEY_GIT_URL:-https://github.com/boldsoftware/shelley.git}"
-SHELLEY_GIT_REF="${SHELLEY_GIT_REF:-}"
-SHELLEY_DOWNLOAD_MODE="${SHELLEY_DOWNLOAD_MODE:-auto}"
-SHELLEY_ARTIFACT_PATH=
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "build.sh must run as root" >&2
@@ -27,23 +21,13 @@ fi
 
 . /etc/os-release
 
-OS_FAMILY=
 case "${ID:-}" in
-  alpine)
-    OS_FAMILY=alpine
-    ;;
-  ubuntu|debian)
-    OS_FAMILY=debian
-    ;;
+  alpine) OS_FAMILY=alpine ;;
+  ubuntu|debian) OS_FAMILY=debian ;;
   *)
     case "${ID_LIKE:-}" in
-      *debian*)
-        OS_FAMILY=debian
-        ;;
-      *)
-        echo "unsupported OS: ${ID:-unknown}" >&2
-        exit 1
-        ;;
+      *debian*) OS_FAMILY=debian ;;
+      *) echo "unsupported OS: ${ID:-unknown}" >&2; exit 1 ;;
     esac
     ;;
 esac
@@ -63,7 +47,7 @@ ensure_swap() {
     return
   fi
 
-  say "Provisioning temporary swap for low-memory build host"
+  say "Provisioning temporary swap for low-memory host"
   if [ ! -f "$swapfile" ]; then
     if command -v fallocate >/dev/null 2>&1; then
       fallocate -l "${desired_swap_mb}M" "$swapfile"
@@ -73,28 +57,8 @@ ensure_swap() {
     chmod 600 "$swapfile"
     mkswap "$swapfile"
   fi
-
   if ! swapon --show=NAME | grep -qx "$swapfile"; then
     swapon "$swapfile"
-  fi
-}
-
-ensure_shelley_source() {
-  if [ -f "$SHELLEY_DIR/go.mod" ]; then
-    return
-  fi
-  say "Fetching Shelley source"
-  mkdir -p "$(dirname "$SHELLEY_DIR")"
-  git clone "$SHELLEY_GIT_URL" "$SHELLEY_DIR"
-  if [ -n "$SHELLEY_GIT_REF" ]; then
-    git -C "$SHELLEY_DIR" checkout "$SHELLEY_GIT_REF"
-  fi
-}
-
-ensure_community_repo() {
-  if ! grep -q '/community' /etc/apk/repositories; then
-    release=$(cut -d. -f1,2 < /etc/alpine-release)
-    echo "https://dl-cdn.alpinelinux.org/alpine/v${release}/community" >> /etc/apk/repositories
   fi
 }
 
@@ -106,120 +70,26 @@ detect_public_host() {
   ip -4 route get 1.1.1.1 2>/dev/null | awk '/src/ {for (i = 1; i <= NF; i++) if ($i == "src") {print $(i+1); exit}}'
 }
 
-detect_shelley_binary_name() {
+detect_agent_binary_name() {
   arch=$(uname -m)
   case "$arch" in
-    aarch64|arm64) printf '%s\n' "shelley-linux-aarch64" ;;
-    x86_64|amd64) printf '%s\n' "shelley-linux-x86" ;;
-    *)
-      echo "unsupported architecture: $arch" >&2
-      exit 1
-      ;;
+    aarch64|arm64) printf '%s\n' "smolagent-linux-aarch64" ;;
+    x86_64|amd64) printf '%s\n' "smolagent-linux-x86" ;;
+    *) echo "unsupported architecture: $arch" >&2; exit 1 ;;
   esac
-}
-
-detect_shelley_release_asset() {
-  arch=$(uname -m)
-  case "$arch" in
-    aarch64|arm64) printf '%s\n' "shelley_linux_arm64" ;;
-    x86_64|amd64) printf '%s\n' "shelley_linux_amd64" ;;
-    *)
-      echo "unsupported architecture: $arch" >&2
-      exit 1
-      ;;
-  esac
-}
-
-download_shelley_release_binary() {
-  asset=$(detect_shelley_release_asset)
-  binary_name=$(detect_shelley_binary_name)
-  target_dir="$SMOLVM_DIR/bin"
-  target_path="$target_dir/$binary_name"
-  url="${SHELLEY_RELEASE_URL:-https://github.com/boldsoftware/shelley/releases/latest/download/$asset}"
-
-  mkdir -p "$target_dir"
-  say "Downloading Shelley release binary"
-  if ! curl -fsSL "$url" -o "$target_path"; then
-    rm -f "$target_path"
-    return 1
-  fi
-  chmod 755 "$target_path"
-  SHELLEY_ARTIFACT_PATH="$target_path"
-}
-
-build_shelley() {
-  arch=$(uname -m)
-  case "$arch" in
-    aarch64|arm64)
-      goarch=arm64
-      output="bin/shelley-linux-aarch64"
-      ;;
-    x86_64|amd64)
-      goarch=amd64
-      output="bin/shelley-linux-x86"
-      ;;
-    *)
-      echo "unsupported architecture: $arch" >&2
-      exit 1
-      ;;
-  esac
-  (
-    cd "$SHELLEY_DIR"
-    make ui templates
-    rm -rf ui/node_modules
-    pnpm store prune >/dev/null 2>&1 || true
-    rm -rf "${HOME:-/root}/.cache/pnpm" "${HOME:-/root}/.pnpm-store"
-    GOOS=linux GOARCH="$goarch" go build -p=1 -o "$output" ./cmd/shelley
-  )
 }
 
 install_packages_alpine() {
   say "Installing Alpine prerequisites"
-  ensure_community_repo
   apk update
-  apk add \
-    bash \
-    build-base \
-    ca-certificates \
-    coreutils \
-    curl \
-    docker \
-    e2fsprogs \
-    git \
-    go \
-    make \
-    nodejs \
-    npm \
-    pnpm \
-    sqlite \
-    tini \
-    util-linux
+  apk add bash build-base ca-certificates coreutils curl docker e2fsprogs git go sqlite tini util-linux
 }
 
 install_packages_debian() {
   say "Installing Debian/Ubuntu prerequisites"
   export DEBIAN_FRONTEND=noninteractive
   apt-get update
-  apt-get install -y --no-install-recommends \
-    bash \
-    build-essential \
-    ca-certificates \
-    coreutils \
-    curl \
-    docker.io \
-    e2fsprogs \
-    git \
-    golang-go \
-    iproute2 \
-    make \
-    nodejs \
-    npm \
-    sqlite3 \
-    tini \
-    util-linux
-  if ! command -v pnpm >/dev/null 2>&1; then
-    npm install -g pnpm
-  fi
+  apt-get install -y --no-install-recommends bash build-essential ca-certificates coreutils curl docker.io e2fsprogs git golang-go iproute2 sqlite3 tini util-linux
   apt-get clean
   rm -rf /var/lib/apt/lists/*
 }
@@ -236,23 +106,40 @@ start_docker_debian() {
   systemctl restart docker
 }
 
+build_binaries() {
+  say "Building smolvm binaries"
+  mkdir -p "$SMOLVM_DIR/bin"
+  arch=$(uname -m)
+  case "$arch" in
+    aarch64|arm64) goarch=arm64 ;;
+    x86_64|amd64) goarch=amd64 ;;
+    *) echo "unsupported architecture: $arch" >&2; exit 1 ;;
+  esac
+  (cd "$SMOLVM_DIR" && go build -o "$SMOLVM_DIR/bin/smolvm-admin" ./)
+  (cd "$SMOLVM_DIR" && GOOS=linux GOARCH="$goarch" go build -o "$SMOLVM_DIR/bin/$(detect_agent_binary_name)" ./cmd/smolagent)
+}
+
+deploy_binaries() {
+  say "Deploying binaries"
+  mkdir -p /opt/smolvm/bin /opt/smolvm/data
+  install -m 755 "$SMOLVM_DIR/bin/smolvm-admin" /opt/smolvm/bin/smolvm-admin
+  install -m 755 "$SMOLVM_DIR/bin/$(detect_agent_binary_name)" "/opt/smolvm/bin/$(detect_agent_binary_name)"
+}
+
 write_openrc_env_file() {
   admin_password=${SMOLVM_ADMIN_PASSWORD:-changeme}
   public_host=$(detect_public_host)
-  shelley_binary_name=$(detect_shelley_binary_name)
+  agent_binary_name=$(detect_agent_binary_name)
   cat > /etc/conf.d/smolvm <<EOF
 SMOLVM_LISTEN=${SMOLVM_LISTEN:-:8090}
 SMOLVM_DATA_DIR=${SMOLVM_DATA_DIR:-/opt/smolvm/data}
-SMOLVM_SHELLEY_BINARY=/opt/smolvm/bin/${shelley_binary_name}
-SMOLVM_IMAGE=${SMOLVM_IMAGE:-smolvm-shelley:latest}
+SMOLVM_AGENT_BINARY=/opt/smolvm/bin/${agent_binary_name}
+SMOLVM_IMAGE=${SMOLVM_IMAGE:-smolvm-agent:latest}
 SMOLVM_PUBLIC_HOST=${public_host}
 SMOLVM_SYSTEM_KEY=${SMOLVM_SYSTEM_KEY:-/root/.openai}
 SMOLVM_ADMIN_PASSWORD=${admin_password}
 EOF
   chmod 644 /etc/conf.d/smolvm
-  if [ "$admin_password" = "changeme" ]; then
-    echo "warning: using default admin password 'changeme'; change it after first login" >&2
-  fi
 }
 
 write_openrc_service() {
@@ -282,20 +169,17 @@ EOF
 write_systemd_env_file() {
   admin_password=${SMOLVM_ADMIN_PASSWORD:-changeme}
   public_host=$(detect_public_host)
-  shelley_binary_name=$(detect_shelley_binary_name)
+  agent_binary_name=$(detect_agent_binary_name)
   cat > /etc/default/smolvm <<EOF
 SMOLVM_LISTEN=${SMOLVM_LISTEN:-:8090}
 SMOLVM_DATA_DIR=${SMOLVM_DATA_DIR:-/opt/smolvm/data}
-SMOLVM_SHELLEY_BINARY=/opt/smolvm/bin/${shelley_binary_name}
-SMOLVM_IMAGE=${SMOLVM_IMAGE:-smolvm-shelley:latest}
+SMOLVM_AGENT_BINARY=/opt/smolvm/bin/${agent_binary_name}
+SMOLVM_IMAGE=${SMOLVM_IMAGE:-smolvm-agent:latest}
 SMOLVM_PUBLIC_HOST=${public_host}
 SMOLVM_SYSTEM_KEY=${SMOLVM_SYSTEM_KEY:-/root/.openai}
 SMOLVM_ADMIN_PASSWORD=${admin_password}
 EOF
   chmod 644 /etc/default/smolvm
-  if [ "$admin_password" = "changeme" ]; then
-    echo "warning: using default admin password 'changeme'; change it after first login" >&2
-  fi
 }
 
 write_systemd_service() {
@@ -317,13 +201,6 @@ RestartSec=2
 [Install]
 WantedBy=multi-user.target
 EOF
-}
-
-deploy_binaries() {
-  say "Deploying binaries"
-  mkdir -p /opt/smolvm/bin /opt/smolvm/data
-  install -m 755 "$SMOLVM_DIR/bin/smolvm-admin" /opt/smolvm/bin/smolvm-admin
-  install -m 755 "$SHELLEY_ARTIFACT_PATH" "/opt/smolvm/bin/$(detect_shelley_binary_name)"
 }
 
 configure_service_alpine() {
@@ -379,35 +256,7 @@ case "$OS_FAMILY" in
 esac
 
 ensure_swap
-
-say "Building smolvm admin from source"
-mkdir -p "$SMOLVM_DIR/bin"
-(cd "$SMOLVM_DIR" && go build -o "$SMOLVM_DIR/bin/smolvm-admin" ./)
-
-case "$SHELLEY_DOWNLOAD_MODE" in
-  auto)
-    if ! download_shelley_release_binary; then
-      ensure_shelley_source
-      say "Building Shelley from source"
-      build_shelley
-      SHELLEY_ARTIFACT_PATH="$SHELLEY_DIR/bin/$(detect_shelley_binary_name)"
-    fi
-    ;;
-  release)
-    download_shelley_release_binary
-    ;;
-  source)
-    ensure_shelley_source
-    say "Building Shelley from source"
-    build_shelley
-    SHELLEY_ARTIFACT_PATH="$SHELLEY_DIR/bin/$(detect_shelley_binary_name)"
-    ;;
-  *)
-    echo "unsupported SHELLEY_DOWNLOAD_MODE: $SHELLEY_DOWNLOAD_MODE" >&2
-    exit 1
-    ;;
-esac
-
+build_binaries
 deploy_binaries
 
 case "$OS_FAMILY" in

@@ -1,0 +1,158 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: #111827;
+  color: #e5e7eb;
+}
+
+.shell {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  min-height: 100vh;
+}
+
+.sidebar {
+  border-right: 1px solid #1f2937;
+  background: #0b1220;
+  padding: 16px;
+}
+
+.sidebar-head,
+.main-head,
+.composer {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.sidebar-head,
+.main-head {
+  justify-content: space-between;
+}
+
+.sidebar h1,
+.main h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.conversation-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.conversation-item,
+button {
+  border: 1px solid #374151;
+  background: #111827;
+  color: inherit;
+  border-radius: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.conversation-item {
+  text-align: left;
+}
+
+.conversation-item span {
+  display: block;
+  color: #9ca3af;
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+.conversation-item.active {
+  border-color: #60a5fa;
+}
+
+.main {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  min-height: 100vh;
+}
+
+.main-head {
+  padding: 16px 20px;
+  border-bottom: 1px solid #1f2937;
+}
+
+.meta {
+  margin: 4px 0 0 0;
+  color: #9ca3af;
+  font-size: 12px;
+}
+
+.messages {
+  padding: 20px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.message {
+  border: 1px solid #1f2937;
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: #111827;
+}
+
+.message-user {
+  background: #172554;
+}
+
+.message-tool {
+  background: #1f2937;
+}
+
+.role {
+  color: #93c5fd;
+  font-size: 12px;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.composer {
+  padding: 16px 20px;
+  border-top: 1px solid #1f2937;
+}
+
+textarea {
+  flex: 1;
+  min-height: 120px;
+  resize: vertical;
+  border-radius: 8px;
+  border: 1px solid #374151;
+  background: #030712;
+  color: inherit;
+  padding: 12px;
+  font: inherit;
+}
+
+button {
+  min-width: 88px;
+}
+
+@media (max-width: 900px) {
+  .shell {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    border-right: 0;
+    border-bottom: 1px solid #1f2937;
+  }
+}
