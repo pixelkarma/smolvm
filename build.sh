@@ -7,6 +7,8 @@ SHELLEY_DIR="${SHELLEY_SOURCE_DIR:-$REPO_ROOT/shelley}"
 SMOLVM_DIR="$SCRIPT_DIR"
 SHELLEY_GIT_URL="${SHELLEY_GIT_URL:-https://github.com/boldsoftware/shelley.git}"
 SHELLEY_GIT_REF="${SHELLEY_GIT_REF:-}"
+SHELLEY_DOWNLOAD_MODE="${SHELLEY_DOWNLOAD_MODE:-auto}"
+SHELLEY_ARTIFACT_PATH=
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "build.sh must run as root" >&2
@@ -114,6 +116,35 @@ detect_shelley_binary_name() {
       exit 1
       ;;
   esac
+}
+
+detect_shelley_release_asset() {
+  arch=$(uname -m)
+  case "$arch" in
+    aarch64|arm64) printf '%s\n' "shelley_linux_arm64" ;;
+    x86_64|amd64) printf '%s\n' "shelley_linux_amd64" ;;
+    *)
+      echo "unsupported architecture: $arch" >&2
+      exit 1
+      ;;
+  esac
+}
+
+download_shelley_release_binary() {
+  asset=$(detect_shelley_release_asset)
+  binary_name=$(detect_shelley_binary_name)
+  target_dir="$SMOLVM_DIR/bin"
+  target_path="$target_dir/$binary_name"
+  url="${SHELLEY_RELEASE_URL:-https://github.com/boldsoftware/shelley/releases/latest/download/$asset}"
+
+  mkdir -p "$target_dir"
+  say "Downloading Shelley release binary"
+  if ! curl -fsSL "$url" -o "$target_path"; then
+    rm -f "$target_path"
+    return 1
+  fi
+  chmod 755 "$target_path"
+  SHELLEY_ARTIFACT_PATH="$target_path"
 }
 
 build_shelley() {
@@ -292,7 +323,7 @@ deploy_binaries() {
   say "Deploying binaries"
   mkdir -p /opt/smolvm/bin /opt/smolvm/data
   install -m 755 "$SMOLVM_DIR/bin/smolvm-admin" /opt/smolvm/bin/smolvm-admin
-  install -m 755 "$SHELLEY_DIR/bin/$(detect_shelley_binary_name)" "/opt/smolvm/bin/$(detect_shelley_binary_name)"
+  install -m 755 "$SHELLEY_ARTIFACT_PATH" "/opt/smolvm/bin/$(detect_shelley_binary_name)"
 }
 
 configure_service_alpine() {
@@ -349,14 +380,33 @@ esac
 
 ensure_swap
 
-ensure_shelley_source
-
-say "Building Shelley from source"
-build_shelley
-
 say "Building smolvm admin from source"
 mkdir -p "$SMOLVM_DIR/bin"
 (cd "$SMOLVM_DIR" && go build -o "$SMOLVM_DIR/bin/smolvm-admin" ./)
+
+case "$SHELLEY_DOWNLOAD_MODE" in
+  auto)
+    if ! download_shelley_release_binary; then
+      ensure_shelley_source
+      say "Building Shelley from source"
+      build_shelley
+      SHELLEY_ARTIFACT_PATH="$SHELLEY_DIR/bin/$(detect_shelley_binary_name)"
+    fi
+    ;;
+  release)
+    download_shelley_release_binary
+    ;;
+  source)
+    ensure_shelley_source
+    say "Building Shelley from source"
+    build_shelley
+    SHELLEY_ARTIFACT_PATH="$SHELLEY_DIR/bin/$(detect_shelley_binary_name)"
+    ;;
+  *)
+    echo "unsupported SHELLEY_DOWNLOAD_MODE: $SHELLEY_DOWNLOAD_MODE" >&2
+    exit 1
+    ;;
+esac
 
 deploy_binaries
 
