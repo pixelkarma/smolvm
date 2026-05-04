@@ -221,7 +221,7 @@ fi
 export PROJECT_WEB_PORT="$APP_PORT"
 cd /workspace
 echo "smolvm-init: launching agent"
-ls -l /usr/local/bin/smolagent
+test -x /usr/local/bin/smolagent
 exec /usr/local/bin/smolagent --config /root/.smolvm/smolvm.config.json
 `
 }
