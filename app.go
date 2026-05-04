@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -389,7 +390,7 @@ func (a *App) handleLogs(w http.ResponseWriter, r *http.Request, id int64) {
 		http.NotFound(w, r)
 		return
 	}
-	logs, err := dockerLogs(a.runtimeFor(inst).ContainerName)
+	logs, err := instanceLogs(inst, a.runtimeFor(inst))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -430,7 +431,7 @@ func (a *App) handleStopInstance(w http.ResponseWriter, r *http.Request, id int6
 		http.NotFound(w, r)
 		return
 	}
-	if err := dockerStop(a.runtimeFor(inst).ContainerName); err != nil {
+	if err := a.stopInstance(inst); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -464,13 +465,33 @@ func appURL(host string, port int) string {
 
 func (a *App) runtimeFor(inst Instance) InstanceRuntime {
 	base := filepath.Join(a.cfg.DataDir, "instances", fmt.Sprintf("%d-%s", inst.ID, inst.Slug))
+	maskBits := 16
+	if _, ipNet, err := net.ParseCIDR(a.cfg.BridgeCIDR); err == nil {
+		ones, _ := ipNet.Mask.Size()
+		maskBits = ones
+	}
+	n := inst.ID - 1
+	third := 1 + int((n/250)%250)
+	fourth := 2 + int(n%250)
+	guestIP := fmt.Sprintf("172.22.%d.%d", third, fourth)
+	mac := fmt.Sprintf("06:00:ac:16:%02x:%02x", third, fourth)
 	return InstanceRuntime{
-		ContainerName: fmt.Sprintf("smolvm-%s", inst.Slug),
-		InstanceDir:   base,
-		DiskImagePath: filepath.Join(base, "disk.img"),
-		MountDir:      filepath.Join(base, "mnt"),
-		WorkspaceDir:  filepath.Join(base, "mnt", "workspace"),
-		ConfigDir:     filepath.Join(base, "mnt", "root-smolvm"),
-		VarLibDir:     filepath.Join(base, "mnt", "varlib"),
+		MachineName:     fmt.Sprintf("smolvm-%s", inst.Slug),
+		InstanceDir:     base,
+		DiskImagePath:   filepath.Join(base, "disk.img"),
+		MountDir:        filepath.Join(base, "mnt"),
+		WorkspaceDir:    filepath.Join(base, "mnt", "workspace"),
+		ConfigDir:       filepath.Join(base, "mnt", "root-smolvm"),
+		VarLibDir:       filepath.Join(base, "mnt", "varlib"),
+		SocketPath:      filepath.Join(base, "firecracker.sock"),
+		SerialLogPath:   filepath.Join(base, "serial.log"),
+		PIDPath:         filepath.Join(base, "firecracker.pid"),
+		AgentForwardPID: filepath.Join(base, "agent-forward.pid"),
+		AppForwardPID:   filepath.Join(base, "app-forward.pid"),
+		TapName:         fmt.Sprintf("fc%d", inst.ID),
+		GuestIP:         guestIP,
+		GuestGateway:    a.cfg.BridgeGateway,
+		GuestMaskBits:   maskBits,
+		GuestMAC:        mac,
 	}
 }

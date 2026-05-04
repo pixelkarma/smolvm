@@ -31,11 +31,8 @@ func NewOpenAIClient(cfg Config) (*OpenAIClient, error) {
 			key = strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
 		}
 		if key == "" {
-			source := "config openai_api_key"
-			if envName != "" {
-				source = envName
-			}
-			return nil, fmt.Errorf("%s is not set for model %s", source, model.ID)
+			modelIndex[model.ID] = model
+			continue
 		}
 		cfg := openai.DefaultConfig(key)
 		if model.BaseURL != "" {
@@ -56,6 +53,9 @@ func (c *OpenAIClient) RunTurn(ctx context.Context, cfg Config, conv Conversatio
 		return "", fmt.Errorf("unknown model: %s", conv.ModelID)
 	}
 	client := c.clients[model.ID]
+	if client == nil {
+		return "", fmt.Errorf("model %s is not configured with an API key", conv.ModelID)
+	}
 	messages := buildChatMessages(cfg, conv.Cwd, history)
 	tools := toolDefinitions()
 

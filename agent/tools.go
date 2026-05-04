@@ -86,7 +86,8 @@ func runBash(ctx context.Context, cwd, command string) (toolCallResult, error) {
 	runCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(runCtx, "/bin/bash", "-lc", command)
+	shell, args := detectShell(command)
+	cmd := exec.CommandContext(runCtx, shell, args...)
 	cmd.Dir = cwd
 	cmd.Env = os.Environ()
 
@@ -116,6 +117,13 @@ func runBash(ctx context.Context, cwd, command string) (toolCallResult, error) {
 		parts = append(parts, "(no output)")
 	}
 	return toolCallResult{Output: truncate(strings.Join(parts, "\n\n"), 12000), NewCwd: cwd}, nil
+}
+
+func detectShell(command string) (string, []string) {
+	if _, err := os.Stat("/bin/bash"); err == nil {
+		return "/bin/bash", []string{"-lc", command}
+	}
+	return "/bin/sh", []string{"-lc", command}
 }
 
 func resolveDir(workspace, cwd, raw string) (string, error) {

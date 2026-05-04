@@ -9,9 +9,9 @@ import (
 )
 
 func main() {
-	defaultConfigPath, err := configfile.DefaultPath()
-	if err != nil {
-		log.Fatalf("failed to determine default config path: %v", err)
+	defaultConfigPath := "smolvm.config.json"
+	if p, err := configfile.DefaultPath(); err == nil {
+		defaultConfigPath = p
 	}
 	var configPath string
 	flag.StringVar(&configPath, "config", defaultConfigPath, "Path to smolvm config JSON")

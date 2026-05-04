@@ -59,6 +59,7 @@ SMOLVM_HOME=$(detect_host_home)
 SMOLVM_BIN_DIR="$SMOLVM_HOME/bin"
 SMOLVM_DATA_DIR=${SMOLVM_DATA_DIR:-$SMOLVM_HOME/data}
 SMOLVM_CONFIG_PATH="$SMOLVM_HOME/smolvm.config.json"
+SMOLVM_ASSETS_DIR="$SMOLVM_HOME/assets"
 
 ensure_swap() {
   mem_kb=$(awk '/MemTotal:/ {print $2}' /proc/meminfo)
@@ -94,6 +95,25 @@ detect_public_host() {
   ip -4 route get 1.1.1.1 2>/dev/null | awk '/src/ {for (i = 1; i <= NF; i++) if ($i == "src") {print $(i+1); exit}}'
 }
 
+detect_outbound_interface() {
+  ip -4 route get 1.1.1.1 2>/dev/null | awk '/dev/ {for (i = 1; i <= NF; i++) if ($i == "dev") {print $(i+1); exit}}'
+}
+
+resolve_default_openai_key() {
+  if [ -n "${SMOLVM_DEFAULT_OPENAI_API_KEY:-}" ]; then
+    printf '%s\n' "$SMOLVM_DEFAULT_OPENAI_API_KEY"
+    return
+  fi
+  key_file="${SMOLVM_KEY_FILE:-$HOME/.openai}"
+  if [ -f "$key_file" ]; then
+    first_line=$(head -n 1 "$key_file" | tr -d '\r\n')
+    case "$first_line" in
+      OPENAI_API_KEY=*) printf '%s\n' "${first_line#OPENAI_API_KEY=}" ;;
+      *) printf '%s\n' "$first_line" ;;
+    esac
+  fi
+}
+
 detect_agent_binary_name() {
   arch=$(uname -m)
   case "$arch" in
@@ -103,31 +123,27 @@ detect_agent_binary_name() {
   esac
 }
 
+detect_firecracker_arch() {
+  arch=$(uname -m)
+  case "$arch" in
+    x86_64|amd64) printf '%s\n' "x86_64" ;;
+    *) echo "unsupported architecture for firecracker: $arch" >&2; exit 1 ;;
+  esac
+}
+
 install_packages_alpine() {
   say "Installing Alpine prerequisites"
   apk update
-  apk add bash build-base ca-certificates coreutils curl docker e2fsprogs git go sqlite tini util-linux
+  apk add bash build-base ca-certificates coreutils curl e2fsprogs git go iptables iproute2 socat sqlite tini util-linux
 }
 
 install_packages_debian() {
   say "Installing Debian/Ubuntu prerequisites"
   export DEBIAN_FRONTEND=noninteractive
   apt-get update
-  apt-get install -y --no-install-recommends bash build-essential ca-certificates coreutils curl docker.io e2fsprogs git golang-go iproute2 sqlite3 tini util-linux
+  apt-get install -y --no-install-recommends bash build-essential ca-certificates coreutils curl e2fsprogs git golang-go iproute2 iptables socat sqlite3 tini util-linux
   apt-get clean
   rm -rf /var/lib/apt/lists/*
-}
-
-start_docker_alpine() {
-  say "Enabling Docker"
-  rc-update add docker default >/dev/null 2>&1 || true
-  rc-service docker start
-}
-
-start_docker_debian() {
-  say "Enabling Docker"
-  systemctl enable docker
-  systemctl restart docker
 }
 
 build_binaries() {
@@ -139,31 +155,80 @@ build_binaries() {
     x86_64|amd64) goarch=amd64 ;;
     *) echo "unsupported architecture: $arch" >&2; exit 1 ;;
   esac
-  (cd "$SMOLVM_DIR" && go build -o "$SMOLVM_DIR/bin/smolvm-admin" ./)
-  (cd "$SMOLVM_DIR" && GOOS=linux GOARCH="$goarch" go build -o "$SMOLVM_DIR/bin/$(detect_agent_binary_name)" ./cmd/smolagent)
+  (cd "$SMOLVM_DIR" && go build -buildvcs=false -o "$SMOLVM_DIR/bin/smolvm-admin" ./)
+  (cd "$SMOLVM_DIR" && GOOS=linux GOARCH="$goarch" go build -buildvcs=false -o "$SMOLVM_DIR/bin/$(detect_agent_binary_name)" ./cmd/smolagent)
 }
 
 deploy_binaries() {
   say "Deploying binaries"
-  mkdir -p "$SMOLVM_BIN_DIR" "$SMOLVM_DATA_DIR"
+  mkdir -p "$SMOLVM_BIN_DIR" "$SMOLVM_DATA_DIR" "$SMOLVM_ASSETS_DIR"
   install -m 755 "$SMOLVM_DIR/bin/smolvm-admin" "$SMOLVM_BIN_DIR/smolvm-admin"
   install -m 755 "$SMOLVM_DIR/bin/$(detect_agent_binary_name)" "$SMOLVM_BIN_DIR/$(detect_agent_binary_name)"
+}
+
+download_firecracker() {
+  say "Installing Firecracker binary"
+  fc_arch=$(detect_firecracker_arch)
+  release_tag=$(curl -fsSL https://api.github.com/repos/firecracker-microvm/firecracker/releases/latest | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n 1)
+  if [ -z "$release_tag" ]; then
+    echo "failed to determine latest Firecracker release" >&2
+    exit 1
+  fi
+  tmpdir=$(mktemp -d)
+  trap 'rm -rf "$tmpdir"' EXIT INT TERM
+  archive="$tmpdir/firecracker.tgz"
+  curl -fsSL -o "$archive" "https://github.com/firecracker-microvm/firecracker/releases/download/${release_tag}/firecracker-${release_tag}-${fc_arch}.tgz"
+  tar -xzf "$archive" -C "$tmpdir"
+  fc_bin=$(find "$tmpdir" -type f -name 'firecracker-*' ! -name '*.json' ! -name '*.yaml' ! -name '*.sig' ! -name '*.debug' | head -n 1)
+  if [ -z "$fc_bin" ]; then
+    echo "failed to extract Firecracker binary" >&2
+    exit 1
+  fi
+  install -m 755 "$fc_bin" "$SMOLVM_BIN_DIR/firecracker"
+  rm -rf "$tmpdir"
+  trap - EXIT INT TERM
+}
+
+download_guest_assets() {
+  say "Downloading Alpine guest assets"
+  curl -fsSL -o "$SMOLVM_ASSETS_DIR/vmlinux.bin" \
+    "https://s3.amazonaws.com/spec.ccfc.min/img/quickstart_guide/x86_64/kernels/vmlinux.bin"
+  curl -fsSL -o "$SMOLVM_ASSETS_DIR/alpine-minirootfs.tar.gz" \
+    "https://dl-cdn.alpinelinux.org/alpine/v3.22/releases/x86_64/alpine-minirootfs-3.22.4-x86_64.tar.gz"
+}
+
+cleanup_old_docker_artifacts() {
+  say "Cleaning prior Docker-based smolvm artifacts"
+  if command -v docker >/dev/null 2>&1; then
+    docker rm -f smolvm-instance >/dev/null 2>&1 || true
+    docker ps -a --format '{{.Names}}' | grep '^smolvm-' | xargs -r docker rm -f >/dev/null 2>&1 || true
+    docker images --format '{{.Repository}}:{{.Tag}}' | grep -E '^smolvm|^shelley|^smolvm-shelley' | xargs -r docker image rm -f >/dev/null 2>&1 || true
+  fi
+  rm -rf /opt/smolvm /opt/smolvm-src /var/lib/smolvm /var/log/smolvm
 }
 
 write_config_file() {
   admin_password=${SMOLVM_ADMIN_PASSWORD:-changeme}
   public_host=$(detect_public_host)
   agent_binary_name=$(detect_agent_binary_name)
+  outbound_interface=${SMOLVM_OUTBOUND_INTERFACE:-$(detect_outbound_interface)}
+  default_openai_api_key=$(resolve_default_openai_key)
   mkdir -p "$SMOLVM_HOME"
   cat > "$SMOLVM_CONFIG_PATH" <<EOF
 {
   "listen_addr": "${SMOLVM_LISTEN:-:8090}",
   "data_dir": "${SMOLVM_DATA_DIR}",
   "agent_binary_path": "${SMOLVM_BIN_DIR}/${agent_binary_name}",
-  "image_name": "${SMOLVM_IMAGE:-smolvm-agent:latest}",
   "public_host": "${public_host}",
-  "default_openai_api_key": "${SMOLVM_DEFAULT_OPENAI_API_KEY:-}",
-  "admin_password": "${admin_password}"
+  "default_openai_api_key": "${default_openai_api_key}",
+  "admin_password": "${admin_password}",
+  "firecracker_binary_path": "${SMOLVM_BIN_DIR}/firecracker",
+  "kernel_image_path": "${SMOLVM_ASSETS_DIR}/vmlinux.bin",
+  "alpine_minirootfs_path": "${SMOLVM_ASSETS_DIR}/alpine-minirootfs.tar.gz",
+  "bridge_name": "${SMOLVM_BRIDGE_NAME:-smolvm0}",
+  "bridge_cidr": "${SMOLVM_BRIDGE_CIDR:-172.22.0.1/16}",
+  "bridge_gateway": "${SMOLVM_BRIDGE_GATEWAY:-172.22.0.1}",
+  "outbound_interface": "${outbound_interface}"
 }
 EOF
   chmod 600 "$SMOLVM_CONFIG_PATH"
@@ -182,7 +247,6 @@ output_log="/var/log/smolvm/current.log"
 error_log="/var/log/smolvm/current.log"
 
 depend() {
-  need docker
   after firewall
 }
 
@@ -197,9 +261,8 @@ write_systemd_service() {
   cat > /etc/systemd/system/smolvm.service <<EOF
 [Unit]
 Description=smolvm admin
-After=network-online.target docker.service
+After=network-online.target
 Wants=network-online.target
-Requires=docker.service
 
 [Service]
 Type=simple
@@ -256,17 +319,18 @@ print_summary() {
 case "$OS_FAMILY" in
   alpine)
     install_packages_alpine
-    start_docker_alpine
     ;;
   debian)
     install_packages_debian
-    start_docker_debian
     ;;
 esac
 
 ensure_swap
+cleanup_old_docker_artifacts
 build_binaries
 deploy_binaries
+download_firecracker
+download_guest_assets
 
 case "$OS_FAMILY" in
   alpine)

@@ -2,6 +2,9 @@ package main
 
 import (
 	"fmt"
+	"os/exec"
+	"runtime"
+	"strings"
 
 	"smolvm/configfile"
 )
@@ -24,8 +27,37 @@ func LoadConfig(path string) (Config, error) {
 	if cfg.AgentBinaryPath == "" {
 		return cfg, fmt.Errorf("agent_binary_path is required")
 	}
-	if cfg.ImageName == "" {
-		cfg.ImageName = "smolvm-agent:latest"
+	if cfg.FirecrackerBinary == "" {
+		cfg.FirecrackerBinary = "/usr/local/bin/firecracker"
+	}
+	if cfg.KernelImagePath == "" {
+		return cfg, fmt.Errorf("kernel_image_path is required")
+	}
+	if cfg.MinirootfsPath == "" {
+		return cfg, fmt.Errorf("alpine_minirootfs_path is required")
+	}
+	if cfg.BridgeName == "" {
+		cfg.BridgeName = "smolvm0"
+	}
+	if cfg.BridgeCIDR == "" {
+		cfg.BridgeCIDR = "172.22.0.1/16"
+	}
+	if cfg.BridgeGateway == "" {
+		cfg.BridgeGateway = "172.22.0.1"
+	}
+	if cfg.OutboundInterface == "" {
+		cfg.OutboundInterface = detectOutboundInterface()
+	}
+	if runtime.GOARCH != "amd64" {
+		return cfg, fmt.Errorf("firecracker runtime currently requires amd64 host architecture")
 	}
 	return cfg, nil
+}
+
+func detectOutboundInterface() string {
+	out, err := exec.Command("sh", "-c", "ip route get 1.1.1.1 2>/dev/null | awk '/dev/ {for (i = 1; i <= NF; i++) if ($i == \"dev\") {print $(i+1); exit}}'").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }

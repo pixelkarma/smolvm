@@ -9,7 +9,7 @@ import (
 
 func BuildSystemPrompt(cfg Config, cwd string) string {
 	var sections []string
-	sections = append(sections, strings.TrimSpace(`You are smolagent, a coding agent running inside a managed smolvm container.
+	sections = append(sections, strings.TrimSpace(`You are smolagent, a coding agent running inside a managed smolvm Firecracker microVM.
 Work directly in the provided Linux environment.
 Keep responses concise and execution-focused.
 Use tools when you need to inspect files, run commands, or change directories.`))
@@ -19,7 +19,7 @@ Use tools when you need to inspect files, run commands, or change directories.`)
 	}
 
 	if text := readPromptFile("/root/.smolvm/AGENTS.md"); text != "" {
-		sections = append(sections, "Container guidance:\n"+text)
+		sections = append(sections, "VM guidance:\n"+text)
 	}
 	if text := readPromptFile(filepath.Join(cfg.WorkspaceDir, "AGENTS.md")); text != "" {
 		sections = append(sections, "Workspace guidance:\n"+text)
