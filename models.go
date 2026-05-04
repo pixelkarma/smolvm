@@ -55,11 +55,13 @@ type InstanceRuntime struct {
 	PIDPath         string
 	AgentForwardPID string
 	AppForwardPID   string
+	SSHForwardPID   string
 	TapName         string
 	GuestIP         string
 	GuestGateway    string
 	GuestMaskBits   int
 	GuestMAC        string
+	SSHPort         int
 }
 
 type DashboardData struct {

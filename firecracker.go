@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -127,6 +128,9 @@ func prepareGuestDisk(rt InstanceRuntime, inst Instance, settings Settings, cfg 
 	if err := copyFile(cfg.AgentBinaryPath, filepath.Join(rt.MountDir, "usr", "local", "bin", "smolagent"), 0o755); err != nil {
 		return err
 	}
+	if err := ensureGuestPackage(rt.MountDir, "dropbear"); err != nil {
+		return err
+	}
 	if err := writeGuestFiles(rt, inst, settings, cfg); err != nil {
 		return err
 	}
@@ -170,6 +174,13 @@ func writeGuestFiles(rt InstanceRuntime, inst Instance, settings Settings, cfg C
 		return err
 	}
 	if err := copyCACerts(rt.MountDir); err != nil {
+		return err
+	}
+	pubKey, err := ensureGuestDebugKey(filepath.Dir(cfg.AgentBinaryPath))
+	if err != nil {
+		return err
+	}
+	if err := writeAuthorizedKey(rt.MountDir, pubKey); err != nil {
 		return err
 	}
 	initScript := buildGuestInit()
@@ -216,6 +227,12 @@ if [ -n "$GUEST_IP" ]; then
 fi
 if [ -n "$GUEST_GW" ]; then
   ip route add default via "$GUEST_GW"
+fi
+
+mkdir -p /root/.ssh /var/run/dropbear
+if [ -x /usr/sbin/dropbear ]; then
+  echo "smolvm-init: starting ssh"
+  /usr/sbin/dropbear -R -E -p 22 &
 fi
 
 export PROJECT_WEB_PORT="$APP_PORT"
@@ -298,17 +315,23 @@ func launchFirecracker(rt InstanceRuntime, inst Instance, cfg Config) error {
 }
 
 func startForwarders(rt InstanceRuntime, inst Instance) error {
+	if err := startSocatForward(rt.SSHForwardPID, "127.0.0.1", rt.SSHPort, rt.GuestIP, 22, rt.SerialLogPath); err != nil {
+		return err
+	}
 	if err := startSocatForward(rt.AgentForwardPID, "127.0.0.1", inst.ShelleyPort, rt.GuestIP, 9000, rt.SerialLogPath); err != nil {
+		_ = stopPIDFile(rt.SSHForwardPID)
 		return err
 	}
 	if err := startSocatForward(rt.AppForwardPID, "0.0.0.0", inst.WebPort, rt.GuestIP, inst.WebPort, rt.SerialLogPath); err != nil {
 		_ = stopPIDFile(rt.AgentForwardPID)
+		_ = stopPIDFile(rt.SSHForwardPID)
 		return err
 	}
 	return nil
 }
 
 func stopInstanceRuntime(rt InstanceRuntime) error {
+	_ = stopPIDFile(rt.SSHForwardPID)
 	_ = stopPIDFile(rt.AgentForwardPID)
 	_ = stopPIDFile(rt.AppForwardPID)
 	_ = stopPIDFile(rt.PIDPath)
@@ -587,6 +610,200 @@ func copyCACerts(root string) error {
 		return err
 	}
 	return copyFile(src, dest, 0o644)
+}
+
+func writeAuthorizedKey(root, pubKey string) error {
+	sshDir := filepath.Join(root, "root", ".ssh")
+	if err := os.MkdirAll(sshDir, 0o700); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(sshDir, "authorized_keys"), []byte(strings.TrimSpace(pubKey)+"\n"), 0o600); err != nil {
+		return err
+	}
+	return nil
+}
+
+func ensureGuestDebugKey(hostDir string) (string, error) {
+	keyPath := filepath.Join(hostDir, "guest-debug-key")
+	pubPath := keyPath + ".pub"
+	if _, err := os.Stat(pubPath); err == nil {
+		data, readErr := os.ReadFile(pubPath)
+		return string(data), readErr
+	}
+	if err := runCmd("", "ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", keyPath); err != nil {
+		return "", err
+	}
+	data, err := os.ReadFile(pubPath)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func ensureGuestPackage(root, pkg string) error {
+	binPath := filepath.Join(root, "usr", "sbin", pkg)
+	if pkg == "dropbear" {
+		binPath = filepath.Join(root, "usr", "sbin", "dropbear")
+	}
+	if _, err := os.Stat(binPath); err == nil {
+		return nil
+	}
+	apkStatic, err := ensureAPKStatic(root)
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command(apkStatic,
+		"--root", root,
+		"--keys-dir", filepath.Join(root, "etc", "apk", "keys"),
+		"--repositories-file", filepath.Join(root, "etc", "apk", "repositories"),
+		"--arch", "x86_64",
+		"--allow-untrusted",
+		"--initdb",
+		"add", "--no-cache", pkg,
+	)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if out, err := cmd.Output(); err != nil {
+		return fmt.Errorf("apk add %s failed: %v: %s%s", pkg, err, strings.TrimSpace(stderr.String()), strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+func ensureAPKStatic(root string) (string, error) {
+	cacheDir := filepath.Join(root, "root", ".smolvm", ".apk-tools")
+	apkPath := filepath.Join(cacheDir, "apk.static")
+	if _, err := os.Stat(apkPath); err == nil {
+		return apkPath, nil
+	}
+	repos, err := os.ReadFile(filepath.Join(root, "etc", "apk", "repositories"))
+	if err != nil {
+		return "", err
+	}
+	var repo string
+	for _, line := range strings.Split(string(repos), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		repo = line
+		break
+	}
+	if repo == "" {
+		return "", errors.New("no alpine repository configured")
+	}
+	version, err := resolveAPKPackageVersion(repo, "apk-tools-static")
+	if err != nil {
+		return "", err
+	}
+	pkgURL := fmt.Sprintf("%s/apk-tools-static-%s.apk", repo, version)
+	resp, err := http.Get(pkgURL)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return "", fmt.Errorf("downloading %s failed: %s", pkgURL, resp.Status)
+	}
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		return "", err
+	}
+	if err := extractApkStatic(resp.Body, apkPath); err != nil {
+		return "", err
+	}
+	if err := os.Chmod(apkPath, 0o755); err != nil {
+		return "", err
+	}
+	return apkPath, nil
+}
+
+func resolveAPKPackageVersion(repoURL, pkg string) (string, error) {
+	resp, err := http.Get(repoURL + "/APKINDEX.tar.gz")
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return "", fmt.Errorf("downloading APKINDEX failed: %s", resp.Status)
+	}
+	gz, err := gzip.NewReader(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	defer gz.Close()
+	tr := tar.NewReader(gz)
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return "", err
+		}
+		if hdr.Name != "APKINDEX" {
+			continue
+		}
+		data, err := io.ReadAll(tr)
+		if err != nil {
+			return "", err
+		}
+		return parseAPKINDEXVersion(string(data), pkg)
+	}
+	return "", fmt.Errorf("APKINDEX missing in %s", repoURL)
+}
+
+func parseAPKINDEXVersion(index, pkg string) (string, error) {
+	var currentPkg string
+	for _, line := range strings.Split(index, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			currentPkg = ""
+			continue
+		}
+		if strings.HasPrefix(line, "P:") {
+			currentPkg = strings.TrimPrefix(line, "P:")
+			continue
+		}
+		if currentPkg == pkg && strings.HasPrefix(line, "V:") {
+			return strings.TrimPrefix(line, "V:"), nil
+		}
+	}
+	return "", fmt.Errorf("package %s not found in APKINDEX", pkg)
+}
+
+func extractApkStatic(r io.Reader, dest string) error {
+	gz, err := gzip.NewReader(r)
+	if err != nil {
+		return err
+	}
+	defer gz.Close()
+	tr := tar.NewReader(gz)
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		if hdr.Typeflag != tar.TypeReg {
+			continue
+		}
+		if hdr.Name == "sbin/apk.static" || strings.HasSuffix(hdr.Name, "/sbin/apk.static") {
+			if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+				return err
+			}
+			out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
+			if err != nil {
+				return err
+			}
+			if _, err := io.Copy(out, tr); err != nil {
+				_ = out.Close()
+				return err
+			}
+			return out.Close()
+		}
+	}
+	return errors.New("apk.static not found in package")
 }
 
 func writeResolvConf(root string) error {

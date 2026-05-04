@@ -488,10 +488,12 @@ func (a *App) runtimeFor(inst Instance) InstanceRuntime {
 		PIDPath:         filepath.Join(base, "firecracker.pid"),
 		AgentForwardPID: filepath.Join(base, "agent-forward.pid"),
 		AppForwardPID:   filepath.Join(base, "app-forward.pid"),
+		SSHForwardPID:   filepath.Join(base, "ssh-forward.pid"),
 		TapName:         fmt.Sprintf("fc%d", inst.ID),
 		GuestIP:         guestIP,
 		GuestGateway:    a.cfg.BridgeGateway,
 		GuestMaskBits:   maskBits,
 		GuestMAC:        mac,
+		SSHPort:         10000 + int(inst.ID),
 	}
 }
