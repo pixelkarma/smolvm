@@ -299,6 +299,43 @@ start_post() {
 EOF
   chmod 755 "$template_mount/etc/init.d/smolagentd"
 
+  cat > "$template_mount/etc/init.d/fcpinip" <<'EOF'
+#!/sbin/openrc-run
+
+description="Re-apply kernel ip= networking late in boot"
+
+depend() {
+  after localmount
+  before fcsshd smolagentd
+}
+
+start() {
+  for param in $(cat /proc/cmdline); do
+    case "$param" in
+      ip=*)
+        IPCONF="${param#ip=}"
+        CLIENT_IP=$(echo "$IPCONF" | cut -d: -f1)
+        GATEWAY=$(echo "$IPCONF" | cut -d: -f3)
+        IFACE=$(echo "$IPCONF" | cut -d: -f6)
+        if [ -n "$CLIENT_IP" ] && [ -n "$IFACE" ]; then
+          echo "fcpinip: applying $CLIENT_IP via $GATEWAY on $IFACE" > /dev/console
+          ip link set "$IFACE" up || true
+          ip addr flush dev "$IFACE" 2>/dev/null || true
+          ip addr add "$CLIENT_IP/24" dev "$IFACE"
+          if [ -n "$GATEWAY" ]; then
+            ip route replace default via "$GATEWAY" dev "$IFACE"
+          fi
+          ip addr show "$IFACE" > /dev/console 2>&1 || true
+          ip route show > /dev/console 2>&1 || true
+        fi
+        ;;
+    esac
+  done
+  return 0
+}
+EOF
+  chmod 755 "$template_mount/etc/init.d/fcpinip"
+
   cat > "$template_mount/etc/init.d/fcsshd" <<'EOF'
 #!/sbin/openrc-run
 
@@ -309,7 +346,7 @@ pidfile="/run/sshd.pid"
 command_background="yes"
 
 depend() {
-  after localmount
+  after fcpinip localmount
 }
 
 start_pre() {
@@ -334,6 +371,7 @@ apk add bash ca-certificates doas iproute2 openrc openssh >/dev/null
 rc-update add devfs sysinit >/dev/null
 rc-update add bootmisc boot >/dev/null
 rc-update add hostname boot >/dev/null
+rc-update add fcpinip default >/dev/null
 rc-update add fcsshd default >/dev/null
 rc-update add smolagentd default >/dev/null
 echo "root:root" | chpasswd
