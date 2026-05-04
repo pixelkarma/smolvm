@@ -155,8 +155,8 @@ build_binaries() {
     x86_64|amd64) goarch=amd64 ;;
     *) echo "unsupported architecture: $arch" >&2; exit 1 ;;
   esac
-  (cd "$SMOLVM_DIR" && go build -buildvcs=false -o "$SMOLVM_DIR/bin/smolvm-admin" ./)
-  (cd "$SMOLVM_DIR" && GOOS=linux GOARCH="$goarch" go build -buildvcs=false -o "$SMOLVM_DIR/bin/$(detect_agent_binary_name)" ./cmd/smolagent)
+  (cd "$SMOLVM_DIR" && CGO_ENABLED=0 go build -buildvcs=false -o "$SMOLVM_DIR/bin/smolvm-admin" ./)
+  (cd "$SMOLVM_DIR" && CGO_ENABLED=0 GOOS=linux GOARCH="$goarch" go build -buildvcs=false -o "$SMOLVM_DIR/bin/$(detect_agent_binary_name)" ./cmd/smolagent)
 }
 
 deploy_binaries() {
