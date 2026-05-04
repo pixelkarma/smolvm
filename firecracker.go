@@ -197,6 +197,12 @@ echo "smolvm-init: start"
 mount -t proc proc /proc
 mount -t sysfs sysfs /sys
 	mount -t devtmpfs devtmpfs /dev || mount -t tmpfs tmpfs /dev || true
+[ -e /dev/null ] || mknod -m 666 /dev/null c 1 3
+[ -e /dev/zero ] || mknod -m 666 /dev/zero c 1 5
+[ -e /dev/random ] || mknod -m 666 /dev/random c 1 8
+[ -e /dev/urandom ] || mknod -m 666 /dev/urandom c 1 9
+[ -e /dev/tty ] || mknod -m 666 /dev/tty c 5 0
+[ -e /dev/console ] || mknod -m 600 /dev/console c 5 1
 mkdir -p /dev/pts /run /tmp
 mount -t devpts devpts /dev/pts || true
 mount -t tmpfs tmpfs /run || true
