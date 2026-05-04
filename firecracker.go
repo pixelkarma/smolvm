@@ -691,11 +691,12 @@ func ensureAPKStatic(root string) (string, error) {
 	if repo == "" {
 		return "", errors.New("no alpine repository configured")
 	}
-	version, err := resolveAPKPackageVersion(repo, "apk-tools-static")
+	repoArchURL := strings.TrimRight(repo, "/") + "/x86_64"
+	version, err := resolveAPKPackageVersion(repoArchURL, "apk-tools-static")
 	if err != nil {
 		return "", err
 	}
-	pkgURL := fmt.Sprintf("%s/apk-tools-static-%s.apk", repo, version)
+	pkgURL := fmt.Sprintf("%s/apk-tools-static-%s.apk", repoArchURL, version)
 	resp, err := http.Get(pkgURL)
 	if err != nil {
 		return "", err
