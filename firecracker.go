@@ -181,7 +181,8 @@ func writeGuestFiles(rt InstanceRuntime, inst Instance, settings Settings, cfg C
 
 func buildGuestInit() string {
 	return `#!/bin/sh
-set -eu
+set -eux
+echo "smolvm-init: start"
 mount -t proc proc /proc
 mount -t sysfs sysfs /sys
 	mount -t devtmpfs devtmpfs /dev || mount -t tmpfs tmpfs /dev || true
@@ -206,6 +207,7 @@ for arg in $(cat /proc/cmdline); do
   esac
 done
 
+echo "smolvm-init: parsed cmdline hostname=$HOSTNAME_VALUE ip=$GUEST_IP gw=$GUEST_GW mask=$GUEST_MASK app_port=$APP_PORT"
 hostname "$HOSTNAME_VALUE" || true
 ip link set lo up || true
 ip link set eth0 up
@@ -218,6 +220,8 @@ fi
 
 export PROJECT_WEB_PORT="$APP_PORT"
 cd /workspace
+echo "smolvm-init: launching agent"
+ls -l /usr/local/bin/smolagent
 exec /usr/local/bin/smolagent --config /root/.smolvm/smolvm.config.json
 `
 }
