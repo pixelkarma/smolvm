@@ -194,7 +194,7 @@ download_guest_assets() {
   curl -fsSL -o "$SMOLVM_ASSETS_DIR/vmlinux.bin" \
     "https://s3.amazonaws.com/spec.ccfc.min/img/quickstart_guide/x86_64/kernels/vmlinux.bin"
   curl -fsSL -o "$SMOLVM_ASSETS_DIR/alpine-minirootfs.tar.gz" \
-    "https://dl-cdn.alpinelinux.org/alpine/v3.22/releases/x86_64/alpine-minirootfs-3.22.4-x86_64.tar.gz"
+    "https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/x86_64/alpine-minirootfs-3.21.2-x86_64.tar.gz"
 }
 
 cleanup_old_docker_artifacts() {
