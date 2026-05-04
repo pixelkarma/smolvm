@@ -199,6 +199,15 @@ download_guest_assets() {
 
 cleanup_old_docker_artifacts() {
   say "Cleaning prior Docker-based smolvm artifacts"
+  case "$OS_FAMILY" in
+    alpine)
+      rc-service docker stop >/dev/null 2>&1 || true
+      rc-update del docker default >/dev/null 2>&1 || true
+      ;;
+    debian)
+      systemctl disable --now docker docker.socket containerd >/dev/null 2>&1 || true
+      ;;
+  esac
   if command -v docker >/dev/null 2>&1; then
     docker rm -f smolvm-instance >/dev/null 2>&1 || true
     docker ps -a --format '{{.Names}}' | grep '^smolvm-' | xargs -r docker rm -f >/dev/null 2>&1 || true
