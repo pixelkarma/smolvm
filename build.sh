@@ -192,7 +192,7 @@ download_firecracker() {
 download_guest_assets() {
   say "Downloading Alpine guest assets"
   curl -fsSL -o "$SMOLVM_ASSETS_DIR/vmlinux.bin" \
-    "https://s3.amazonaws.com/spec.ccfc.min/img/quickstart_guide/x86_64/kernels/vmlinux.bin"
+    "https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.11/x86_64/vmlinux-6.1.102"
   curl -fsSL -o "$SMOLVM_ASSETS_DIR/alpine-minirootfs.tar.gz" \
     "https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/x86_64/alpine-minirootfs-3.21.2-x86_64.tar.gz"
 }
