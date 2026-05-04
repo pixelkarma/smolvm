@@ -134,14 +134,14 @@ detect_firecracker_arch() {
 install_packages_alpine() {
   say "Installing Alpine prerequisites"
   apk update
-  apk add bash build-base ca-certificates coreutils curl e2fsprogs git go iptables iproute2 socat sqlite tini util-linux
+  apk add bash build-base ca-certificates coreutils curl e2fsprogs git go iptables iproute2 openssh socat sqlite tini util-linux
 }
 
 install_packages_debian() {
   say "Installing Debian/Ubuntu prerequisites"
   export DEBIAN_FRONTEND=noninteractive
   apt-get update
-  apt-get install -y --no-install-recommends bash build-essential ca-certificates coreutils curl e2fsprogs git golang-go iproute2 iptables socat sqlite3 tini util-linux
+  apt-get install -y --no-install-recommends bash build-essential ca-certificates coreutils curl e2fsprogs git golang-go iproute2 iptables openssh-client socat sqlite3 tini util-linux
   apt-get clean
   rm -rf /var/lib/apt/lists/*
 }
@@ -197,6 +197,160 @@ download_guest_assets() {
     "https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/x86_64/alpine-minirootfs-3.21.2-x86_64.tar.gz"
 }
 
+build_guest_template() {
+  say "Building Alpine guest template"
+  template_image="${SMOLVM_ASSETS_DIR}/alpine-template.ext4"
+  template_mount="${SMOLVM_HOME}/.template-mnt"
+  agent_binary_name=$(detect_agent_binary_name)
+  template_mb=${SMOLVM_TEMPLATE_MB:-1024}
+
+  rm -f "$template_image"
+  truncate -s "${template_mb}M" "$template_image"
+  mkfs.ext4 -F "$template_image" >/dev/null
+
+  mkdir -p "$template_mount"
+  mount -o loop "$template_image" "$template_mount"
+  trap 'umount "$template_mount" >/dev/null 2>&1 || true' EXIT INT TERM
+
+  tar -xzf "$SMOLVM_ASSETS_DIR/alpine-minirootfs.tar.gz" -C "$template_mount"
+  mkdir -p \
+    "$template_mount/etc/init.d" \
+    "$template_mount/etc/runlevels/sysinit" \
+    "$template_mount/etc/runlevels/boot" \
+    "$template_mount/etc/runlevels/default" \
+    "$template_mount/etc/network" \
+    "$template_mount/root/.smolvm" \
+    "$template_mount/var/lib/smolagent" \
+    "$template_mount/workspace" \
+    "$template_mount/usr/local/bin" \
+    "$template_mount/dev/pts" \
+    "$template_mount/dev/shm"
+
+  install -m 755 "$SMOLVM_BIN_DIR/${agent_binary_name}" "$template_mount/usr/local/bin/smolagent"
+
+  cat > "$template_mount/etc/network/interfaces" <<'EOF'
+auto lo
+iface lo inet loopback
+
+auto eth0
+iface eth0 inet manual
+EOF
+
+  cat > "$template_mount/etc/inittab" <<'EOF'
+::sysinit:/sbin/openrc sysinit
+::sysinit:/sbin/openrc boot
+::wait:/sbin/openrc default
+ttyS0::respawn:/sbin/getty -L ttyS0 115200 vt100
+::ctrlaltdel:/sbin/reboot
+::shutdown:/sbin/openrc shutdown
+EOF
+
+  cat > "$template_mount/etc/fstab" <<'EOF'
+/dev/vda    /           ext4    defaults,noatime  0 1
+devpts      /dev/pts    devpts  defaults          0 0
+proc        /proc       proc    defaults          0 0
+sysfs       /sys        sysfs   defaults          0 0
+tmpfs       /dev/shm    tmpfs   defaults          0 0
+EOF
+
+  cat > "$template_mount/etc/apk/repositories" <<'EOF'
+https://dl-cdn.alpinelinux.org/alpine/v3.21/main
+https://dl-cdn.alpinelinux.org/alpine/v3.21/community
+EOF
+
+  cat > "$template_mount/etc/resolv.conf" <<'EOF'
+nameserver 1.1.1.1
+nameserver 8.8.8.8
+EOF
+
+  cat > "$template_mount/etc/doas.conf" <<'EOF'
+permit persist :wheel
+permit nopass root
+EOF
+  chmod 400 "$template_mount/etc/doas.conf"
+
+  cat > "$template_mount/etc/init.d/smolagentd" <<'EOF'
+#!/sbin/openrc-run
+
+description="smolagent runtime"
+command="/usr/local/bin/smolagent"
+command_args="--config /root/.smolvm/smolvm.config.json"
+pidfile="/run/smolagent.pid"
+command_background="yes"
+output_log="/var/log/smolagent.log"
+error_log="/var/log/smolagent.log"
+
+depend() {
+  after fcsshd localmount
+}
+
+start_pre() {
+  echo "smolagentd: start_pre" > /dev/console
+  mkdir -p /run /var/log /root/.smolvm /workspace /var/lib/smolagent
+  if [ -f /root/.smolvm/instance.env ]; then
+    . /root/.smolvm/instance.env
+    export PROJECT_WEB_PORT
+  fi
+}
+
+start_post() {
+  echo "smolagentd: started" > /dev/console
+}
+EOF
+  chmod 755 "$template_mount/etc/init.d/smolagentd"
+
+  cat > "$template_mount/etc/init.d/fcsshd" <<'EOF'
+#!/sbin/openrc-run
+
+description="smolvm ssh service"
+command="/usr/sbin/sshd"
+command_args="-D -e"
+pidfile="/run/sshd.pid"
+command_background="yes"
+
+depend() {
+  after localmount
+}
+
+start_pre() {
+  echo "fcsshd: start_pre" > /dev/console
+  mkdir -p /run/sshd /root/.ssh
+}
+
+start_post() {
+  echo "fcsshd: started" > /dev/console
+}
+EOF
+  chmod 755 "$template_mount/etc/init.d/fcsshd"
+
+  mount --bind /dev "$template_mount/dev"
+  mount --bind /proc "$template_mount/proc"
+  mount --bind /sys "$template_mount/sys"
+  mount -t devpts devpts "$template_mount/dev/pts"
+
+  chroot "$template_mount" /bin/ash <<'EOF'
+apk update >/dev/null
+apk add bash ca-certificates doas iproute2 openrc openssh >/dev/null
+rc-update add devfs sysinit >/dev/null
+rc-update add bootmisc boot >/dev/null
+rc-update add hostname boot >/dev/null
+rc-update add fcsshd default >/dev/null
+rc-update add smolagentd default >/dev/null
+echo "root:root" | chpasswd
+sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
+sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
+ssh-keygen -A >/dev/null 2>&1
+EOF
+
+  umount "$template_mount/dev/pts"
+  umount "$template_mount/dev"
+  umount "$template_mount/proc"
+  umount "$template_mount/sys"
+  umount "$template_mount"
+  rmdir "$template_mount" >/dev/null 2>&1 || true
+  trap - EXIT INT TERM
+}
+
 cleanup_old_docker_artifacts() {
   say "Cleaning prior Docker-based smolvm artifacts"
   case "$OS_FAMILY" in
@@ -214,6 +368,7 @@ cleanup_old_docker_artifacts() {
     docker images --format '{{.Repository}}:{{.Tag}}' | grep -E '^smolvm|^shelley|^smolvm-shelley' | xargs -r docker image rm -f >/dev/null 2>&1 || true
   fi
   rm -rf /opt/smolvm /opt/smolvm-src /var/lib/smolvm /var/log/smolvm
+  ip link del smolvm0 >/dev/null 2>&1 || true
 }
 
 write_config_file() {
@@ -233,10 +388,7 @@ write_config_file() {
   "admin_password": "${admin_password}",
   "firecracker_binary_path": "${SMOLVM_BIN_DIR}/firecracker",
   "kernel_image_path": "${SMOLVM_ASSETS_DIR}/vmlinux.bin",
-  "alpine_minirootfs_path": "${SMOLVM_ASSETS_DIR}/alpine-minirootfs.tar.gz",
-  "bridge_name": "${SMOLVM_BRIDGE_NAME:-smolvm0}",
-  "bridge_cidr": "${SMOLVM_BRIDGE_CIDR:-172.22.0.1/16}",
-  "bridge_gateway": "${SMOLVM_BRIDGE_GATEWAY:-172.22.0.1}",
+  "template_image_path": "${SMOLVM_ASSETS_DIR}/alpine-template.ext4",
   "outbound_interface": "${outbound_interface}"
 }
 EOF
@@ -340,6 +492,7 @@ build_binaries
 deploy_binaries
 download_firecracker
 download_guest_assets
+build_guest_template
 
 case "$OS_FAMILY" in
   alpine)

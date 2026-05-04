@@ -1,12 +1,9 @@
 package main
 
 import (
-	"archive/tar"
 	"bytes"
-	"compress/gzip"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -21,7 +18,12 @@ import (
 )
 
 func (a *App) ensureBaseImage() error {
-	for _, path := range []string{a.cfg.AgentBinaryPath, a.cfg.FirecrackerBinary, a.cfg.KernelImagePath, a.cfg.MinirootfsPath} {
+	for _, path := range []string{
+		a.cfg.AgentBinaryPath,
+		a.cfg.FirecrackerBinary,
+		a.cfg.KernelImagePath,
+		a.cfg.TemplateImagePath,
+	} {
 		if _, err := os.Stat(path); err != nil {
 			return fmt.Errorf("required asset not found at %s", path)
 		}
@@ -37,38 +39,48 @@ func (a *App) startInstance(inst Instance, settings Settings) error {
 	if err := ensureHostNetwork(a.cfg); err != nil {
 		return err
 	}
-	if err := stopInstanceRuntime(rt); err != nil {
+	if err := stopInstanceRuntime(rt, a.cfg); err != nil {
 		return err
 	}
-	if err := setupTap(rt.TapName, a.cfg.BridgeName); err != nil {
+	if err := setupTap(rt.TapName, rt.HostCIDR); err != nil {
+		return err
+	}
+	if err := ensureNATRule(rt.SubnetCIDR, a.cfg.OutboundInterface); err != nil {
+		_ = teardownTap(rt.TapName)
 		return err
 	}
 	if err := prepareGuestDisk(rt, inst, settings, a.cfg); err != nil {
 		_ = teardownTap(rt.TapName)
+		_ = deleteNATRule(rt.SubnetCIDR, a.cfg.OutboundInterface)
 		return err
 	}
 	if err := launchFirecracker(rt, inst, a.cfg); err != nil {
 		_ = teardownTap(rt.TapName)
+		_ = deleteNATRule(rt.SubnetCIDR, a.cfg.OutboundInterface)
 		return err
 	}
 	if err := startForwarders(rt, inst); err != nil {
-		_ = stopInstanceRuntime(rt)
+		_ = stopInstanceRuntime(rt, a.cfg)
 		return err
 	}
-	if err := waitForPort(rt.GuestIP, 9000, 45*time.Second); err != nil {
-		_ = stopInstanceRuntime(rt)
-		return fmt.Errorf("agent did not become reachable: %w", err)
+	if err := waitForPort("127.0.0.1", rt.SSHPort, 60*time.Second); err != nil {
+		_ = stopInstanceRuntime(rt, a.cfg)
+		return fmt.Errorf("guest ssh forward did not become reachable: %w", err)
+	}
+	if err := waitForPort("127.0.0.1", inst.ShelleyPort, 120*time.Second); err != nil {
+		_ = stopInstanceRuntime(rt, a.cfg)
+		return fmt.Errorf("agent forward did not become reachable: %w", err)
 	}
 	return nil
 }
 
 func (a *App) stopInstance(inst Instance) error {
-	return stopInstanceRuntime(a.runtimeFor(inst))
+	return stopInstanceRuntime(a.runtimeFor(inst), a.cfg)
 }
 
 func (a *App) deleteInstance(inst Instance) error {
 	rt := a.runtimeFor(inst)
-	_ = stopInstanceRuntime(rt)
+	_ = stopInstanceRuntime(rt, a.cfg)
 	if err := os.RemoveAll(rt.InstanceDir); err != nil {
 		return err
 	}
@@ -91,13 +103,8 @@ func instanceLogs(inst Instance, rt InstanceRuntime) (string, error) {
 }
 
 func prepareGuestDisk(rt InstanceRuntime, inst Instance, settings Settings, cfg Config) error {
-	newDisk := false
 	if _, err := os.Stat(rt.DiskImagePath); os.IsNotExist(err) {
-		newDisk = true
-		if err := runCmd("", "truncate", "-s", fmt.Sprintf("%dM", inst.DiskMB), rt.DiskImagePath); err != nil {
-			return err
-		}
-		if err := runCmd("", "mkfs.ext4", "-F", rt.DiskImagePath); err != nil {
+		if err := copyFile(cfg.TemplateImagePath, rt.DiskImagePath, 0o644); err != nil {
 			return err
 		}
 	}
@@ -107,19 +114,13 @@ func prepareGuestDisk(rt InstanceRuntime, inst Instance, settings Settings, cfg 
 	defer func() {
 		_ = unmount(rt.MountDir)
 	}()
-
-	if newDisk {
-		if err := extractMinirootfs(cfg.MinirootfsPath, rt.MountDir); err != nil {
-			return err
-		}
-	}
 	for _, dir := range []string{
-		filepath.Join(rt.MountDir, "var", "lib", "smolagent"),
-		filepath.Join(rt.MountDir, "workspace"),
 		filepath.Join(rt.MountDir, "root", ".smolvm"),
+		filepath.Join(rt.MountDir, "root", ".ssh"),
+		filepath.Join(rt.MountDir, "workspace"),
+		filepath.Join(rt.MountDir, "var", "lib", "smolagent"),
+		filepath.Join(rt.MountDir, "etc", "conf.d"),
 		filepath.Join(rt.MountDir, "usr", "local", "bin"),
-		filepath.Join(rt.MountDir, "sbin"),
-		filepath.Join(rt.MountDir, "etc"),
 	} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return err
@@ -128,13 +129,7 @@ func prepareGuestDisk(rt InstanceRuntime, inst Instance, settings Settings, cfg 
 	if err := copyFile(cfg.AgentBinaryPath, filepath.Join(rt.MountDir, "usr", "local", "bin", "smolagent"), 0o755); err != nil {
 		return err
 	}
-	if err := ensureGuestPackage(rt.MountDir, "dropbear"); err != nil {
-		return err
-	}
-	if err := writeGuestFiles(rt, inst, settings, cfg); err != nil {
-		return err
-	}
-	return nil
+	return writeGuestFiles(rt, inst, settings, cfg)
 }
 
 func writeGuestFiles(rt InstanceRuntime, inst Instance, settings Settings, cfg Config) error {
@@ -163,6 +158,9 @@ func writeGuestFiles(rt InstanceRuntime, inst Instance, settings Settings, cfg C
 	if err := os.WriteFile(filepath.Join(rt.MountDir, "workspace", "AGENTS.md"), []byte(inst.InitialPrompt+"\n"), 0o644); err != nil {
 		return err
 	}
+	if err := os.WriteFile(filepath.Join(rt.MountDir, "root", ".smolvm", "instance.env"), []byte("PROJECT_WEB_PORT="+strconv.Itoa(inst.WebPort)+"\n"), 0o644); err != nil {
+		return err
+	}
 	if err := os.WriteFile(filepath.Join(rt.MountDir, "etc", "hostname"), []byte(inst.Slug+"\n"), 0o644); err != nil {
 		return err
 	}
@@ -173,80 +171,11 @@ func writeGuestFiles(rt InstanceRuntime, inst Instance, settings Settings, cfg C
 	if err := writeResolvConf(rt.MountDir); err != nil {
 		return err
 	}
-	if err := copyCACerts(rt.MountDir); err != nil {
-		return err
-	}
 	pubKey, err := ensureGuestDebugKey(filepath.Dir(cfg.AgentBinaryPath))
 	if err != nil {
 		return err
 	}
-	if err := writeAuthorizedKey(rt.MountDir, pubKey); err != nil {
-		return err
-	}
-	initScript := buildGuestInit()
-	if err := os.WriteFile(filepath.Join(rt.MountDir, "sbin", "smolvm-init"), []byte(initScript), 0o755); err != nil {
-		return err
-	}
-	return nil
-}
-
-func buildGuestInit() string {
-	return `#!/bin/sh
-set -eux
-echo "smolvm-init: start"
-mount -t proc proc /proc
-mount -t sysfs sysfs /sys
-	mount -t devtmpfs devtmpfs /dev || mount -t tmpfs tmpfs /dev || true
-[ -e /dev/null ] || mknod -m 666 /dev/null c 1 3
-[ -e /dev/zero ] || mknod -m 666 /dev/zero c 1 5
-[ -e /dev/random ] || mknod -m 666 /dev/random c 1 8
-[ -e /dev/urandom ] || mknod -m 666 /dev/urandom c 1 9
-[ -e /dev/tty ] || mknod -m 666 /dev/tty c 5 0
-[ -e /dev/console ] || mknod -m 600 /dev/console c 5 1
-mkdir -p /dev/pts /run /tmp
-mount -t devpts devpts /dev/pts || true
-mount -t tmpfs tmpfs /run || true
-mount -t tmpfs tmpfs /tmp || true
-
-HOSTNAME_VALUE=smolvm
-GUEST_IP=
-GUEST_GW=
-GUEST_MASK=16
-APP_PORT=8080
-
-for arg in $(cat /proc/cmdline); do
-  case "$arg" in
-    smolvm.hostname=*) HOSTNAME_VALUE="${arg#smolvm.hostname=}" ;;
-    smolvm.ip=*) GUEST_IP="${arg#smolvm.ip=}" ;;
-    smolvm.gw=*) GUEST_GW="${arg#smolvm.gw=}" ;;
-    smolvm.mask=*) GUEST_MASK="${arg#smolvm.mask=}" ;;
-    smolvm.app_port=*) APP_PORT="${arg#smolvm.app_port=}" ;;
-  esac
-done
-
-echo "smolvm-init: parsed cmdline hostname=$HOSTNAME_VALUE ip=$GUEST_IP gw=$GUEST_GW mask=$GUEST_MASK app_port=$APP_PORT"
-hostname "$HOSTNAME_VALUE" || true
-ip link set lo up || true
-ip link set eth0 up
-if [ -n "$GUEST_IP" ]; then
-  ip addr add "$GUEST_IP/$GUEST_MASK" dev eth0
-fi
-if [ -n "$GUEST_GW" ]; then
-  ip route add default via "$GUEST_GW"
-fi
-
-mkdir -p /root/.ssh /var/run/dropbear
-if [ -x /usr/sbin/dropbear ]; then
-  echo "smolvm-init: starting ssh"
-  /usr/sbin/dropbear -R -E -p 22 &
-fi
-
-export PROJECT_WEB_PORT="$APP_PORT"
-cd /workspace
-echo "smolvm-init: launching agent"
-test -x /usr/local/bin/smolagent
-exec /usr/local/bin/smolagent --config /root/.smolvm/smolvm.config.json
-`
+	return writeAuthorizedKey(rt.MountDir, pubKey)
 }
 
 func launchFirecracker(rt InstanceRuntime, inst Instance, cfg Config) error {
@@ -275,6 +204,7 @@ func launchFirecracker(rt InstanceRuntime, inst Instance, cfg Config) error {
 	if err := waitForSocket(rt.SocketPath, 10*time.Second); err != nil {
 		return err
 	}
+
 	bootArgs := strings.Join([]string{
 		"console=ttyS0",
 		"reboot=k",
@@ -282,12 +212,7 @@ func launchFirecracker(rt InstanceRuntime, inst Instance, cfg Config) error {
 		"pci=off",
 		"root=/dev/vda",
 		"rw",
-		"init=/sbin/smolvm-init",
-		"smolvm.hostname=" + inst.Slug,
-		"smolvm.ip=" + rt.GuestIP,
-		"smolvm.gw=" + rt.GuestGateway,
-		"smolvm.mask=" + strconv.Itoa(rt.GuestMaskBits),
-		"smolvm.app_port=" + strconv.Itoa(inst.WebPort),
+		fmt.Sprintf("ip=%s::%s:255.255.255.0::eth0:off", rt.GuestIP, rt.HostIP),
 	}, " ")
 
 	if err := fcPut(rt.SocketPath, "/machine-config", map[string]any{
@@ -336,12 +261,13 @@ func startForwarders(rt InstanceRuntime, inst Instance) error {
 	return nil
 }
 
-func stopInstanceRuntime(rt InstanceRuntime) error {
+func stopInstanceRuntime(rt InstanceRuntime, cfg Config) error {
 	_ = stopPIDFile(rt.SSHForwardPID)
 	_ = stopPIDFile(rt.AgentForwardPID)
 	_ = stopPIDFile(rt.AppForwardPID)
 	_ = stopPIDFile(rt.PIDPath)
 	_ = teardownTap(rt.TapName)
+	_ = deleteNATRule(rt.SubnetCIDR, cfg.OutboundInterface)
 	_ = os.Remove(rt.SocketPath)
 	_ = unmount(rt.MountDir)
 	return nil
@@ -361,55 +287,22 @@ func ensureMountedDisk(rt InstanceRuntime) error {
 }
 
 func ensureHostNetwork(cfg Config) error {
-	if err := ensureBridge(cfg.BridgeName, cfg.BridgeCIDR); err != nil {
-		return err
-	}
 	if cfg.OutboundInterface == "" {
 		return nil
 	}
 	if err := runCmd("", "sysctl", "-w", "net.ipv4.ip_forward=1"); err != nil {
 		return err
 	}
-	subnet := cidrSubnet(cfg.BridgeCIDR)
-	rules := [][]string{
-		{"-t", "nat", "-C", "POSTROUTING", "-s", subnet, "-o", cfg.OutboundInterface, "-j", "MASQUERADE"},
-		{"-C", "FORWARD", "-i", cfg.BridgeName, "-j", "ACCEPT"},
-		{"-C", "FORWARD", "-o", cfg.BridgeName, "-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED", "-j", "ACCEPT"},
-	}
-	addRules := [][]string{
-		{"-t", "nat", "-A", "POSTROUTING", "-s", subnet, "-o", cfg.OutboundInterface, "-j", "MASQUERADE"},
-		{"-A", "FORWARD", "-i", cfg.BridgeName, "-j", "ACCEPT"},
-		{"-A", "FORWARD", "-o", cfg.BridgeName, "-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED", "-j", "ACCEPT"},
-	}
-	for i, rule := range rules {
-		if err := exec.Command("iptables", rule...).Run(); err != nil {
-			if err := runCmd("", "iptables", addRules[i]...); err != nil {
-				return err
-			}
-		}
-	}
 	return nil
 }
 
-func ensureBridge(name, cidr string) error {
-	if err := exec.Command("ip", "link", "show", name).Run(); err != nil {
-		if err := runCmd("", "ip", "link", "add", name, "type", "bridge"); err != nil {
-			return err
-		}
-	}
-	_ = exec.Command("ip", "addr", "add", cidr, "dev", name).Run()
-	if err := runCmd("", "ip", "link", "set", name, "up"); err != nil {
-		return err
-	}
-	return nil
-}
-
-func setupTap(name, bridge string) error {
+func setupTap(name, hostCIDR string) error {
 	_ = teardownTap(name)
-	if err := runCmd("", "ip", "tuntap", "add", "dev", name, "mode", "tap"); err != nil {
+	if err := runCmd("", "ip", "tuntap", "add", name, "mode", "tap"); err != nil {
 		return err
 	}
-	if err := runCmd("", "ip", "link", "set", name, "master", bridge); err != nil {
+	if err := runCmd("", "ip", "addr", "add", hostCIDR, "dev", name); err != nil {
+		_ = teardownTap(name)
 		return err
 	}
 	return runCmd("", "ip", "link", "set", name, "up")
@@ -418,6 +311,25 @@ func setupTap(name, bridge string) error {
 func teardownTap(name string) error {
 	_ = exec.Command("ip", "link", "set", name, "down").Run()
 	return exec.Command("ip", "link", "del", name).Run()
+}
+
+func ensureNATRule(subnetCIDR, outboundIF string) error {
+	if outboundIF == "" {
+		return nil
+	}
+	check := exec.Command("iptables", "-t", "nat", "-C", "POSTROUTING", "-s", subnetCIDR, "-o", outboundIF, "-j", "MASQUERADE")
+	if err := check.Run(); err == nil {
+		return nil
+	}
+	return runCmd("", "iptables", "-t", "nat", "-A", "POSTROUTING", "-s", subnetCIDR, "-o", outboundIF, "-j", "MASQUERADE")
+}
+
+func deleteNATRule(subnetCIDR, outboundIF string) error {
+	if subnetCIDR == "" || outboundIF == "" {
+		return nil
+	}
+	_ = exec.Command("iptables", "-t", "nat", "-D", "POSTROUTING", "-s", subnetCIDR, "-o", outboundIF, "-j", "MASQUERADE").Run()
+	return nil
 }
 
 func fcPut(socketPath, apiPath string, payload any) error {
@@ -546,76 +458,13 @@ func runningPID(path string) bool {
 	return len(parts) > 2 && parts[2] != "Z"
 }
 
-func extractMinirootfs(tarballPath, dest string) error {
-	if err := os.MkdirAll(dest, 0o755); err != nil {
-		return err
+func writeResolvConf(root string) error {
+	src := "/etc/resolv.conf"
+	dest := filepath.Join(root, "etc", "resolv.conf")
+	if _, err := os.Stat(src); err == nil {
+		return copyFile(src, dest, 0o644)
 	}
-	f, err := os.Open(tarballPath)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	gz, err := gzip.NewReader(f)
-	if err != nil {
-		return err
-	}
-	defer gz.Close()
-	tr := tar.NewReader(gz)
-	for {
-		hdr, err := tr.Next()
-		if err == io.EOF {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		target := filepath.Join(dest, hdr.Name)
-		switch hdr.Typeflag {
-		case tar.TypeDir:
-			if err := os.MkdirAll(target, os.FileMode(hdr.Mode)); err != nil {
-				return err
-			}
-		case tar.TypeReg:
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-				return err
-			}
-			out, err := os.OpenFile(target, os.O_CREATE|os.O_RDWR|os.O_TRUNC, os.FileMode(hdr.Mode))
-			if err != nil {
-				return err
-			}
-			if _, err := io.Copy(out, tr); err != nil {
-				_ = out.Close()
-				return err
-			}
-			if err := out.Close(); err != nil {
-				return err
-			}
-		case tar.TypeSymlink:
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-				return err
-			}
-			_ = os.Remove(target)
-			if err := os.Symlink(hdr.Linkname, target); err != nil {
-				return err
-			}
-		case tar.TypeLink:
-			if err := os.Link(filepath.Join(dest, hdr.Linkname), target); err != nil {
-				return err
-			}
-		}
-	}
-}
-
-func copyCACerts(root string) error {
-	src := "/etc/ssl/certs/ca-certificates.crt"
-	if _, err := os.Stat(src); err != nil {
-		return nil
-	}
-	dest := filepath.Join(root, "etc", "ssl", "certs", "ca-certificates.crt")
-	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
-		return err
-	}
-	return copyFile(src, dest, 0o644)
+	return os.WriteFile(dest, []byte("nameserver 1.1.1.1\nnameserver 8.8.8.8\n"), 0o644)
 }
 
 func writeAuthorizedKey(root, pubKey string) error {
@@ -646,182 +495,6 @@ func ensureGuestDebugKey(hostDir string) (string, error) {
 	return string(data), nil
 }
 
-func ensureGuestPackage(root, pkg string) error {
-	binPath := filepath.Join(root, "usr", "sbin", pkg)
-	if pkg == "dropbear" {
-		binPath = filepath.Join(root, "usr", "sbin", "dropbear")
-	}
-	if _, err := os.Stat(binPath); err == nil {
-		return nil
-	}
-	apkStatic, err := ensureAPKStatic(root)
-	if err != nil {
-		return err
-	}
-	cmd := exec.Command(apkStatic,
-		"--root", root,
-		"--keys-dir", filepath.Join(root, "etc", "apk", "keys"),
-		"--repositories-file", filepath.Join(root, "etc", "apk", "repositories"),
-		"--arch", "x86_64",
-		"--allow-untrusted",
-		"--initdb",
-		"add", "--no-cache", pkg,
-	)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if out, err := cmd.Output(); err != nil {
-		return fmt.Errorf("apk add %s failed: %v: %s%s", pkg, err, strings.TrimSpace(stderr.String()), strings.TrimSpace(string(out)))
-	}
-	return nil
-}
-
-func ensureAPKStatic(root string) (string, error) {
-	cacheDir := filepath.Join(root, "root", ".smolvm", ".apk-tools")
-	apkPath := filepath.Join(cacheDir, "apk.static")
-	if _, err := os.Stat(apkPath); err == nil {
-		return apkPath, nil
-	}
-	repos, err := os.ReadFile(filepath.Join(root, "etc", "apk", "repositories"))
-	if err != nil {
-		return "", err
-	}
-	var repo string
-	for _, line := range strings.Split(string(repos), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		repo = line
-		break
-	}
-	if repo == "" {
-		return "", errors.New("no alpine repository configured")
-	}
-	repoArchURL := strings.TrimRight(repo, "/") + "/x86_64"
-	version, err := resolveAPKPackageVersion(repoArchURL, "apk-tools-static")
-	if err != nil {
-		return "", err
-	}
-	pkgURL := fmt.Sprintf("%s/apk-tools-static-%s.apk", repoArchURL, version)
-	resp, err := http.Get(pkgURL)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 300 {
-		return "", fmt.Errorf("downloading %s failed: %s", pkgURL, resp.Status)
-	}
-	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
-		return "", err
-	}
-	if err := extractApkStatic(resp.Body, apkPath); err != nil {
-		return "", err
-	}
-	if err := os.Chmod(apkPath, 0o755); err != nil {
-		return "", err
-	}
-	return apkPath, nil
-}
-
-func resolveAPKPackageVersion(repoURL, pkg string) (string, error) {
-	resp, err := http.Get(repoURL + "/APKINDEX.tar.gz")
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 300 {
-		return "", fmt.Errorf("downloading APKINDEX failed: %s", resp.Status)
-	}
-	gz, err := gzip.NewReader(resp.Body)
-	if err != nil {
-		return "", err
-	}
-	defer gz.Close()
-	tr := tar.NewReader(gz)
-	for {
-		hdr, err := tr.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return "", err
-		}
-		if hdr.Name != "APKINDEX" {
-			continue
-		}
-		data, err := io.ReadAll(tr)
-		if err != nil {
-			return "", err
-		}
-		return parseAPKINDEXVersion(string(data), pkg)
-	}
-	return "", fmt.Errorf("APKINDEX missing in %s", repoURL)
-}
-
-func parseAPKINDEXVersion(index, pkg string) (string, error) {
-	var currentPkg string
-	for _, line := range strings.Split(index, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			currentPkg = ""
-			continue
-		}
-		if strings.HasPrefix(line, "P:") {
-			currentPkg = strings.TrimPrefix(line, "P:")
-			continue
-		}
-		if currentPkg == pkg && strings.HasPrefix(line, "V:") {
-			return strings.TrimPrefix(line, "V:"), nil
-		}
-	}
-	return "", fmt.Errorf("package %s not found in APKINDEX", pkg)
-}
-
-func extractApkStatic(r io.Reader, dest string) error {
-	gz, err := gzip.NewReader(r)
-	if err != nil {
-		return err
-	}
-	defer gz.Close()
-	tr := tar.NewReader(gz)
-	for {
-		hdr, err := tr.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return err
-		}
-		if hdr.Typeflag != tar.TypeReg {
-			continue
-		}
-		if hdr.Name == "sbin/apk.static" || strings.HasSuffix(hdr.Name, "/sbin/apk.static") {
-			if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
-				return err
-			}
-			out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
-			if err != nil {
-				return err
-			}
-			if _, err := io.Copy(out, tr); err != nil {
-				_ = out.Close()
-				return err
-			}
-			return out.Close()
-		}
-	}
-	return errors.New("apk.static not found in package")
-}
-
-func writeResolvConf(root string) error {
-	src := "/etc/resolv.conf"
-	dest := filepath.Join(root, "etc", "resolv.conf")
-	if _, err := os.Stat(src); err == nil {
-		return copyFile(src, dest, 0o644)
-	}
-	return os.WriteFile(dest, []byte("nameserver 1.1.1.1\nnameserver 8.8.8.8\n"), 0o644)
-}
-
 func copyFile(src, dest string, mode os.FileMode) error {
 	in, err := os.Open(src)
 	if err != nil {
@@ -840,14 +513,6 @@ func copyFile(src, dest string, mode os.FileMode) error {
 		return err
 	}
 	return out.Close()
-}
-
-func cidrSubnet(cidr string) string {
-	_, ipNet, err := net.ParseCIDR(cidr)
-	if err != nil {
-		return "172.22.0.0/16"
-	}
-	return ipNet.String()
 }
 
 func isMountpoint(path string) (bool, error) {

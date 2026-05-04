@@ -12,10 +12,7 @@ type Config struct {
 	AdminPassword       string `json:"admin_password"`
 	FirecrackerBinary   string `json:"firecracker_binary_path"`
 	KernelImagePath     string `json:"kernel_image_path"`
-	MinirootfsPath      string `json:"alpine_minirootfs_path"`
-	BridgeName          string `json:"bridge_name"`
-	BridgeCIDR          string `json:"bridge_cidr"`
-	BridgeGateway       string `json:"bridge_gateway"`
+	TemplateImagePath   string `json:"template_image_path"`
 	OutboundInterface   string `json:"outbound_interface"`
 }
 
@@ -57,9 +54,10 @@ type InstanceRuntime struct {
 	AppForwardPID   string
 	SSHForwardPID   string
 	TapName         string
+	HostIP          string
+	HostCIDR        string
+	SubnetCIDR      string
 	GuestIP         string
-	GuestGateway    string
-	GuestMaskBits   int
 	GuestMAC        string
 	SSHPort         int
 }

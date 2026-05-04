@@ -33,17 +33,8 @@ func LoadConfig(path string) (Config, error) {
 	if cfg.KernelImagePath == "" {
 		return cfg, fmt.Errorf("kernel_image_path is required")
 	}
-	if cfg.MinirootfsPath == "" {
-		return cfg, fmt.Errorf("alpine_minirootfs_path is required")
-	}
-	if cfg.BridgeName == "" {
-		cfg.BridgeName = "smolvm0"
-	}
-	if cfg.BridgeCIDR == "" {
-		cfg.BridgeCIDR = "172.22.0.1/16"
-	}
-	if cfg.BridgeGateway == "" {
-		cfg.BridgeGateway = "172.22.0.1"
+	if cfg.TemplateImagePath == "" {
+		return cfg, fmt.Errorf("template_image_path is required")
 	}
 	if cfg.OutboundInterface == "" {
 		cfg.OutboundInterface = detectOutboundInterface()

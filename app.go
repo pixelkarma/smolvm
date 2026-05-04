@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -465,16 +464,12 @@ func appURL(host string, port int) string {
 
 func (a *App) runtimeFor(inst Instance) InstanceRuntime {
 	base := filepath.Join(a.cfg.DataDir, "instances", fmt.Sprintf("%d-%s", inst.ID, inst.Slug))
-	maskBits := 16
-	if _, ipNet, err := net.ParseCIDR(a.cfg.BridgeCIDR); err == nil {
-		ones, _ := ipNet.Mask.Size()
-		maskBits = ones
-	}
 	n := inst.ID - 1
-	third := 1 + int((n/250)%250)
-	fourth := 2 + int(n%250)
-	guestIP := fmt.Sprintf("172.22.%d.%d", third, fourth)
-	mac := fmt.Sprintf("06:00:ac:16:%02x:%02x", third, fourth)
+	second := 1 + int((n/250)%250)
+	third := 1 + int(n%250)
+	hostIP := fmt.Sprintf("10.%d.%d.1", second, third)
+	guestIP := fmt.Sprintf("10.%d.%d.2", second, third)
+	mac := fmt.Sprintf("06:00:0a:%02x:%02x:02", second, third)
 	return InstanceRuntime{
 		MachineName:     fmt.Sprintf("smolvm-%s", inst.Slug),
 		InstanceDir:     base,
@@ -490,9 +485,10 @@ func (a *App) runtimeFor(inst Instance) InstanceRuntime {
 		AppForwardPID:   filepath.Join(base, "app-forward.pid"),
 		SSHForwardPID:   filepath.Join(base, "ssh-forward.pid"),
 		TapName:         fmt.Sprintf("fc%d", inst.ID),
+		HostIP:          hostIP,
+		HostCIDR:        hostIP + "/24",
+		SubnetCIDR:      fmt.Sprintf("10.%d.%d.0/24", second, third),
 		GuestIP:         guestIP,
-		GuestGateway:    a.cfg.BridgeGateway,
-		GuestMaskBits:   maskBits,
 		GuestMAC:        mac,
 		SSHPort:         10000 + int(inst.ID),
 	}
