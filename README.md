@@ -1,14 +1,14 @@
 # smolvm
 
-`smolvm` is a lightweight admin for running multiple isolated coding-agent instances as Firecracker microVMs. It is for development only: the AI is intentionally given root access inside its guest, and the system is meant to be ephemeral, so host and instance hardening are not design goals.
+`smolvm` is a lightweight admin for running multiple isolated coding-agent instances as Alpine QEMU VMs. It is for development only: the AI is intentionally given root access inside its guest, and the system is meant to be ephemeral, so host and instance hardening are not design goals.
 
 Each instance gets:
-- its own microVM
+- its own VM
 - its own writable disk-backed workspace
 - its own resource limits
 - a private agent UI behind the admin
 - a public app port for whatever web server the instance runs
-- a Firecracker microVM boundary instead of a shared-container boundary
+- a QEMU VM boundary instead of a shared-container boundary
 
 ## Install
 
@@ -52,9 +52,9 @@ The important fields are:
   "public_host": "SERVER_IP",
   "default_openai_api_key": "sk-...",
   "admin_password": "changeme",
-  "firecracker_binary_path": "~/.smolvm/bin/firecracker",
+  "qemu_binary_path": "/usr/bin/qemu-system-x86_64",
   "kernel_image_path": "~/.smolvm/assets/vmlinux.bin",
-  "alpine_minirootfs_path": "~/.smolvm/assets/alpine-minirootfs.tar.gz"
+  "template_image_path": "~/.smolvm/assets/alpine-template.ext4"
 }
 ```
 
@@ -79,7 +79,7 @@ Change it immediately in the admin UI.
 - Each instance gets a private internal agent port, and the admin proxies it after login.
 - Each instance also gets a public app port, starting at `8100` and incrementing.
 - The agent runtime inside each guest also reads `/root/.smolvm/smolvm.config.json`.
-- Each VM is attached to a Firecracker bridge on the host, and host-side forwarders expose the assigned app and agent ports.
+- Each VM uses QEMU user-mode networking with host port forwards for the app, agent, and debug SSH ports.
 
 Example:
 
@@ -104,8 +104,8 @@ Inside the guest, the agent is told which app port to use. If it starts a web ap
 
 ## Limitations
 
-- Instances are Firecracker VMs and require KVM on the host.
-- Host networking is more involved because app ports are forwarded into per-VM guest IPs.
+- Instances run as QEMU VMs. Linux hosts use KVM when available; other hosts fall back to emulation.
+- Local macOS development can run the same VM backend through QEMU, but it will be slower than Linux KVM.
 - The admin auth is intentionally simple: one shared password.
 - The private agent UI is proxied under the admin.
 - The build script installs system packages and services; run it only on a host intended for `smolvm`.

@@ -123,25 +123,17 @@ detect_agent_binary_name() {
   esac
 }
 
-detect_firecracker_arch() {
-  arch=$(uname -m)
-  case "$arch" in
-    x86_64|amd64) printf '%s\n' "x86_64" ;;
-    *) echo "unsupported architecture for firecracker: $arch" >&2; exit 1 ;;
-  esac
-}
-
 install_packages_alpine() {
   say "Installing Alpine prerequisites"
   apk update
-  apk add bash build-base ca-certificates coreutils curl e2fsprogs git go iptables iproute2 openssh socat sqlite tini util-linux
+  apk add bash build-base ca-certificates coreutils curl e2fsprogs git go openssh qemu-system-x86_64 sqlite tini util-linux
 }
 
 install_packages_debian() {
   say "Installing Debian/Ubuntu prerequisites"
   export DEBIAN_FRONTEND=noninteractive
   apt-get update
-  apt-get install -y --no-install-recommends bash build-essential ca-certificates coreutils curl e2fsprogs git golang-go iproute2 iptables openssh-client socat sqlite3 tini util-linux
+  apt-get install -y --no-install-recommends bash build-essential ca-certificates coreutils curl e2fsprogs git golang-go openssh-client qemu-system-x86 sqlite3 tini util-linux
   apt-get clean
   rm -rf /var/lib/apt/lists/*
 }
@@ -166,27 +158,13 @@ deploy_binaries() {
   install -m 755 "$SMOLVM_DIR/bin/$(detect_agent_binary_name)" "$SMOLVM_BIN_DIR/$(detect_agent_binary_name)"
 }
 
-download_firecracker() {
-  say "Installing Firecracker binary"
-  fc_arch=$(detect_firecracker_arch)
-  release_tag=$(curl -fsSL https://api.github.com/repos/firecracker-microvm/firecracker/releases/latest | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n 1)
-  if [ -z "$release_tag" ]; then
-    echo "failed to determine latest Firecracker release" >&2
-    exit 1
+detect_qemu_binary() {
+  if command -v qemu-system-x86_64 >/dev/null 2>&1; then
+    command -v qemu-system-x86_64
+    return
   fi
-  tmpdir=$(mktemp -d)
-  trap 'rm -rf "$tmpdir"' EXIT INT TERM
-  archive="$tmpdir/firecracker.tgz"
-  curl -fsSL -o "$archive" "https://github.com/firecracker-microvm/firecracker/releases/download/${release_tag}/firecracker-${release_tag}-${fc_arch}.tgz"
-  tar -xzf "$archive" -C "$tmpdir"
-  fc_bin=$(find "$tmpdir" -type f -name 'firecracker-*' ! -name '*.json' ! -name '*.yaml' ! -name '*.sig' ! -name '*.debug' | head -n 1)
-  if [ -z "$fc_bin" ]; then
-    echo "failed to extract Firecracker binary" >&2
-    exit 1
-  fi
-  install -m 755 "$fc_bin" "$SMOLVM_BIN_DIR/firecracker"
-  rm -rf "$tmpdir"
-  trap - EXIT INT TERM
+  echo "qemu-system-x86_64 not found" >&2
+  exit 1
 }
 
 download_guest_assets() {
@@ -406,15 +384,14 @@ cleanup_old_docker_artifacts() {
     docker images --format '{{.Repository}}:{{.Tag}}' | grep -E '^smolvm|^shelley|^smolvm-shelley' | xargs -r docker image rm -f >/dev/null 2>&1 || true
   fi
   rm -rf /opt/smolvm /opt/smolvm-src /var/lib/smolvm /var/log/smolvm
-  ip link del smolvm0 >/dev/null 2>&1 || true
 }
 
 write_config_file() {
   admin_password=${SMOLVM_ADMIN_PASSWORD:-changeme}
   public_host=$(detect_public_host)
   agent_binary_name=$(detect_agent_binary_name)
-  outbound_interface=${SMOLVM_OUTBOUND_INTERFACE:-$(detect_outbound_interface)}
   default_openai_api_key=$(resolve_default_openai_key)
+  qemu_binary=${SMOLVM_QEMU_BINARY:-$(detect_qemu_binary)}
   mkdir -p "$SMOLVM_HOME"
   cat > "$SMOLVM_CONFIG_PATH" <<EOF
 {
@@ -424,10 +401,9 @@ write_config_file() {
   "public_host": "${public_host}",
   "default_openai_api_key": "${default_openai_api_key}",
   "admin_password": "${admin_password}",
-  "firecracker_binary_path": "${SMOLVM_BIN_DIR}/firecracker",
+  "qemu_binary_path": "${qemu_binary}",
   "kernel_image_path": "${SMOLVM_ASSETS_DIR}/vmlinux.bin",
-  "template_image_path": "${SMOLVM_ASSETS_DIR}/alpine-template.ext4",
-  "outbound_interface": "${outbound_interface}"
+  "template_image_path": "${SMOLVM_ASSETS_DIR}/alpine-template.ext4"
 }
 EOF
   chmod 600 "$SMOLVM_CONFIG_PATH"
@@ -528,7 +504,6 @@ ensure_swap
 cleanup_old_docker_artifacts
 build_binaries
 deploy_binaries
-download_firecracker
 download_guest_assets
 build_guest_template
 

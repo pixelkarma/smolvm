@@ -464,12 +464,7 @@ func appURL(host string, port int) string {
 
 func (a *App) runtimeFor(inst Instance) InstanceRuntime {
 	base := filepath.Join(a.cfg.DataDir, "instances", fmt.Sprintf("%d-%s", inst.ID, inst.Slug))
-	n := inst.ID - 1
-	second := 1 + int((n/250)%250)
-	third := 1 + int(n%250)
-	hostIP := fmt.Sprintf("10.%d.%d.1", second, third)
-	guestIP := fmt.Sprintf("10.%d.%d.2", second, third)
-	mac := fmt.Sprintf("06:00:0a:%02x:%02x:02", second, third)
+	mac := fmt.Sprintf("52:54:00:%02x:%02x:%02x", byte(inst.ID>>16), byte(inst.ID>>8), byte(inst.ID))
 	return InstanceRuntime{
 		MachineName:     fmt.Sprintf("smolvm-%s", inst.Slug),
 		InstanceDir:     base,
@@ -478,17 +473,9 @@ func (a *App) runtimeFor(inst Instance) InstanceRuntime {
 		WorkspaceDir:    filepath.Join(base, "mnt", "workspace"),
 		ConfigDir:       filepath.Join(base, "mnt", "root-smolvm"),
 		VarLibDir:       filepath.Join(base, "mnt", "varlib"),
-		SocketPath:      filepath.Join(base, "firecracker.sock"),
 		SerialLogPath:   filepath.Join(base, "serial.log"),
-		PIDPath:         filepath.Join(base, "firecracker.pid"),
-		AgentForwardPID: filepath.Join(base, "agent-forward.pid"),
-		AppForwardPID:   filepath.Join(base, "app-forward.pid"),
-		SSHForwardPID:   filepath.Join(base, "ssh-forward.pid"),
-		TapName:         fmt.Sprintf("fc%d", inst.ID),
-		HostIP:          hostIP,
-		HostCIDR:        hostIP + "/24",
-		SubnetCIDR:      fmt.Sprintf("10.%d.%d.0/24", second, third),
-		GuestIP:         guestIP,
+		PIDPath:         filepath.Join(base, "qemu.pid"),
+		GuestIP:         "10.0.2.15",
 		GuestMAC:        mac,
 		SSHPort:         10000 + int(inst.ID),
 	}

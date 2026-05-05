@@ -10,10 +10,9 @@ type Config struct {
 	PublicHost          string `json:"public_host"`
 	DefaultOpenAIAPIKey string `json:"default_openai_api_key"`
 	AdminPassword       string `json:"admin_password"`
-	FirecrackerBinary   string `json:"firecracker_binary_path"`
+	QEMUBinary          string `json:"qemu_binary_path"`
 	KernelImagePath     string `json:"kernel_image_path"`
 	TemplateImagePath   string `json:"template_image_path"`
-	OutboundInterface   string `json:"outbound_interface"`
 }
 
 type Instance struct {
@@ -47,16 +46,8 @@ type InstanceRuntime struct {
 	WorkspaceDir    string
 	ConfigDir       string
 	VarLibDir       string
-	SocketPath      string
 	SerialLogPath   string
 	PIDPath         string
-	AgentForwardPID string
-	AppForwardPID   string
-	SSHForwardPID   string
-	TapName         string
-	HostIP          string
-	HostCIDR        string
-	SubnetCIDR      string
 	GuestIP         string
 	GuestMAC        string
 	SSHPort         int

@@ -22,7 +22,7 @@ func slugify(s string) string {
 
 func defaultGlobalPrompt() string {
 	return `Global smolvm guidance:
-- You are running inside a managed Alpine Linux Firecracker microVM.
+- You are running inside a managed Alpine Linux QEMU virtual machine.
 - The admin system exposes your project web server directly on the assigned project web port.
 - The agent UI itself is private behind the admin proxy. Do not ask the user to browse the raw private agent port.
 - Prefer lightweight dependencies and workflows appropriate for Alpine Linux.

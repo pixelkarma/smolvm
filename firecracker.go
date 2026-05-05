@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -20,7 +20,7 @@ import (
 func (a *App) ensureBaseImage() error {
 	for _, path := range []string{
 		a.cfg.AgentBinaryPath,
-		a.cfg.FirecrackerBinary,
+		a.cfg.QEMUBinary,
 		a.cfg.KernelImagePath,
 		a.cfg.TemplateImagePath,
 	} {
@@ -28,7 +28,7 @@ func (a *App) ensureBaseImage() error {
 			return fmt.Errorf("required asset not found at %s", path)
 		}
 	}
-	return ensureHostNetwork(a.cfg)
+	return nil
 }
 
 func (a *App) startInstance(inst Instance, settings Settings) error {
@@ -36,51 +36,33 @@ func (a *App) startInstance(inst Instance, settings Settings) error {
 	if err := os.MkdirAll(rt.InstanceDir, 0o755); err != nil {
 		return err
 	}
-	if err := ensureHostNetwork(a.cfg); err != nil {
-		return err
-	}
-	if err := stopInstanceRuntime(rt, a.cfg); err != nil {
-		return err
-	}
-	if err := setupTap(rt.TapName, rt.HostCIDR); err != nil {
-		return err
-	}
-	if err := ensureNATRule(rt.SubnetCIDR, a.cfg.OutboundInterface); err != nil {
-		_ = teardownTap(rt.TapName)
+	if err := stopInstanceRuntime(rt); err != nil {
 		return err
 	}
 	if err := prepareGuestDisk(rt, inst, settings, a.cfg); err != nil {
-		_ = teardownTap(rt.TapName)
-		_ = deleteNATRule(rt.SubnetCIDR, a.cfg.OutboundInterface)
 		return err
 	}
-	if err := launchFirecracker(rt, inst, a.cfg); err != nil {
-		_ = teardownTap(rt.TapName)
-		_ = deleteNATRule(rt.SubnetCIDR, a.cfg.OutboundInterface)
+	if err := launchQEMU(rt, inst, a.cfg); err != nil {
 		return err
 	}
-	if err := startForwarders(rt, inst); err != nil {
-		_ = stopInstanceRuntime(rt, a.cfg)
-		return err
+	if err := waitForSSHBanner("127.0.0.1", rt.SSHPort, 60*time.Second); err != nil {
+		_ = stopInstanceRuntime(rt)
+		return fmt.Errorf("guest ssh did not become reachable: %w", err)
 	}
-	if err := waitForPort("127.0.0.1", rt.SSHPort, 60*time.Second); err != nil {
-		_ = stopInstanceRuntime(rt, a.cfg)
-		return fmt.Errorf("guest ssh forward did not become reachable: %w", err)
-	}
-	if err := waitForPort("127.0.0.1", inst.ShelleyPort, 120*time.Second); err != nil {
-		_ = stopInstanceRuntime(rt, a.cfg)
-		return fmt.Errorf("agent forward did not become reachable: %w", err)
+	if err := waitForHTTP("127.0.0.1", inst.ShelleyPort, 120*time.Second); err != nil {
+		_ = stopInstanceRuntime(rt)
+		return fmt.Errorf("agent did not become reachable: %w", err)
 	}
 	return nil
 }
 
 func (a *App) stopInstance(inst Instance) error {
-	return stopInstanceRuntime(a.runtimeFor(inst), a.cfg)
+	return stopInstanceRuntime(a.runtimeFor(inst))
 }
 
 func (a *App) deleteInstance(inst Instance) error {
 	rt := a.runtimeFor(inst)
-	_ = stopInstanceRuntime(rt, a.cfg)
+	_ = stopInstanceRuntime(rt)
 	if err := os.RemoveAll(rt.InstanceDir); err != nil {
 		return err
 	}
@@ -144,11 +126,10 @@ func writeGuestFiles(rt InstanceRuntime, inst Instance, settings Settings, cfg C
 	if inst.APIKey != "" {
 		agentCfg["openai_api_key"] = inst.APIKey
 	}
-	data, err := json.MarshalIndent(agentCfg, "", "  ")
+	data, err := jsonMarshalIndent(agentCfg)
 	if err != nil {
 		return err
 	}
-	data = append(data, '\n')
 	if err := os.WriteFile(filepath.Join(rt.MountDir, "root", ".smolvm", "smolvm.config.json"), data, 0o600); err != nil {
 		return err
 	}
@@ -164,7 +145,7 @@ func writeGuestFiles(rt InstanceRuntime, inst Instance, settings Settings, cfg C
 	if err := os.WriteFile(filepath.Join(rt.MountDir, "etc", "hostname"), []byte(inst.Slug+"\n"), 0o644); err != nil {
 		return err
 	}
-	hosts := "127.0.0.1 localhost\n" + rt.GuestIP + " " + inst.Slug + "\n"
+	hosts := "127.0.0.1 localhost\n10.0.2.15 " + inst.Slug + "\n"
 	if err := os.WriteFile(filepath.Join(rt.MountDir, "etc", "hosts"), []byte(hosts), 0o644); err != nil {
 		return err
 	}
@@ -178,13 +159,53 @@ func writeGuestFiles(rt InstanceRuntime, inst Instance, settings Settings, cfg C
 	return writeAuthorizedKey(rt.MountDir, pubKey)
 }
 
-func launchFirecracker(rt InstanceRuntime, inst Instance, cfg Config) error {
-	_ = os.Remove(rt.SocketPath)
+func launchQEMU(rt InstanceRuntime, inst Instance, cfg Config) error {
 	logFile, err := os.OpenFile(rt.SerialLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command(cfg.FirecrackerBinary, "--api-sock", rt.SocketPath)
+
+	machineArg := "-machine"
+	machineValue := "microvm,accel=tcg"
+	if runtime.GOOS == "linux" {
+		machineValue = "microvm,accel=kvm:tcg"
+	}
+
+	netdev := fmt.Sprintf(
+		"user,id=net0,hostfwd=tcp:127.0.0.1:%d-:22,hostfwd=tcp:127.0.0.1:%d-:9000,hostfwd=tcp:0.0.0.0:%d-:%d",
+		rt.SSHPort,
+		inst.ShelleyPort,
+		inst.WebPort,
+		inst.WebPort,
+	)
+	bootArgs := strings.Join([]string{
+		"console=ttyS0",
+		"reboot=k",
+		"panic=1",
+		"root=/dev/vda",
+		"rw",
+		"ip=10.0.2.15::10.0.2.2:255.255.255.0::eth0:off",
+	}, " ")
+
+	args := []string{
+		machineArg, machineValue,
+		"-nodefaults",
+		"-no-user-config",
+		"-no-reboot",
+		"-display", "none",
+		"-serial", "stdio",
+		"-monitor", "none",
+		"-m", strconv.Itoa(inst.MemoryMB),
+		"-smp", strconv.Itoa(inst.CPUCount),
+		"-kernel", cfg.KernelImagePath,
+		"-append", bootArgs,
+		"-drive", "if=none,id=rootfs,format=raw,file=" + rt.DiskImagePath,
+		"-netdev", netdev,
+		"-device", "virtio-blk-device,drive=rootfs",
+		"-device", "virtio-net-device,netdev=net0,mac=" + rt.GuestMAC,
+		"-device", "virtio-rng-device",
+	}
+	cmd := exec.Command(cfg.QEMUBinary, args...)
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -201,74 +222,11 @@ func launchFirecracker(rt InstanceRuntime, inst Instance, cfg Config) error {
 		_ = cmd.Wait()
 		_ = logFile.Close()
 	}()
-	if err := waitForSocket(rt.SocketPath, 10*time.Second); err != nil {
-		return err
-	}
-
-	bootArgs := strings.Join([]string{
-		"console=ttyS0",
-		"reboot=k",
-		"panic=1",
-		"pci=off",
-		"root=/dev/vda",
-		"rw",
-		fmt.Sprintf("ip=%s::%s:255.255.255.0::eth0:off", rt.GuestIP, rt.HostIP),
-	}, " ")
-
-	if err := fcPut(rt.SocketPath, "/machine-config", map[string]any{
-		"vcpu_count":   inst.CPUCount,
-		"mem_size_mib": inst.MemoryMB,
-	}); err != nil {
-		return err
-	}
-	if err := fcPut(rt.SocketPath, "/boot-source", map[string]any{
-		"kernel_image_path": cfg.KernelImagePath,
-		"boot_args":         bootArgs,
-	}); err != nil {
-		return err
-	}
-	if err := fcPut(rt.SocketPath, "/drives/rootfs", map[string]any{
-		"drive_id":       "rootfs",
-		"path_on_host":   rt.DiskImagePath,
-		"is_root_device": true,
-		"is_read_only":   false,
-	}); err != nil {
-		return err
-	}
-	if err := fcPut(rt.SocketPath, "/network-interfaces/eth0", map[string]any{
-		"iface_id":      "eth0",
-		"host_dev_name": rt.TapName,
-		"guest_mac":     rt.GuestMAC,
-	}); err != nil {
-		return err
-	}
-	return fcPut(rt.SocketPath, "/actions", map[string]any{"action_type": "InstanceStart"})
-}
-
-func startForwarders(rt InstanceRuntime, inst Instance) error {
-	if err := startSocatForward(rt.SSHForwardPID, "127.0.0.1", rt.SSHPort, rt.GuestIP, 22, rt.SerialLogPath); err != nil {
-		return err
-	}
-	if err := startSocatForward(rt.AgentForwardPID, "127.0.0.1", inst.ShelleyPort, rt.GuestIP, 9000, rt.SerialLogPath); err != nil {
-		_ = stopPIDFile(rt.SSHForwardPID)
-		return err
-	}
-	if err := startSocatForward(rt.AppForwardPID, "0.0.0.0", inst.WebPort, rt.GuestIP, inst.WebPort, rt.SerialLogPath); err != nil {
-		_ = stopPIDFile(rt.AgentForwardPID)
-		_ = stopPIDFile(rt.SSHForwardPID)
-		return err
-	}
 	return nil
 }
 
-func stopInstanceRuntime(rt InstanceRuntime, cfg Config) error {
-	_ = stopPIDFile(rt.SSHForwardPID)
-	_ = stopPIDFile(rt.AgentForwardPID)
-	_ = stopPIDFile(rt.AppForwardPID)
+func stopInstanceRuntime(rt InstanceRuntime) error {
 	_ = stopPIDFile(rt.PIDPath)
-	_ = teardownTap(rt.TapName)
-	_ = deleteNATRule(rt.SubnetCIDR, cfg.OutboundInterface)
-	_ = os.Remove(rt.SocketPath)
 	_ = unmount(rt.MountDir)
 	return nil
 }
@@ -286,135 +244,39 @@ func ensureMountedDisk(rt InstanceRuntime) error {
 	return nil
 }
 
-func ensureHostNetwork(cfg Config) error {
-	if cfg.OutboundInterface == "" {
-		return nil
-	}
-	if err := runCmd("", "sysctl", "-w", "net.ipv4.ip_forward=1"); err != nil {
-		return err
-	}
-	return nil
-}
-
-func setupTap(name, hostCIDR string) error {
-	_ = teardownTap(name)
-	if err := runCmd("", "ip", "tuntap", "add", name, "mode", "tap"); err != nil {
-		return err
-	}
-	if err := runCmd("", "ip", "addr", "add", hostCIDR, "dev", name); err != nil {
-		_ = teardownTap(name)
-		return err
-	}
-	return runCmd("", "ip", "link", "set", name, "up")
-}
-
-func teardownTap(name string) error {
-	_ = exec.Command("ip", "link", "set", name, "down").Run()
-	return exec.Command("ip", "link", "del", name).Run()
-}
-
-func ensureNATRule(subnetCIDR, outboundIF string) error {
-	if outboundIF == "" {
-		return nil
-	}
-	check := exec.Command("iptables", "-t", "nat", "-C", "POSTROUTING", "-s", subnetCIDR, "-o", outboundIF, "-j", "MASQUERADE")
-	if err := check.Run(); err == nil {
-		return nil
-	}
-	return runCmd("", "iptables", "-t", "nat", "-A", "POSTROUTING", "-s", subnetCIDR, "-o", outboundIF, "-j", "MASQUERADE")
-}
-
-func deleteNATRule(subnetCIDR, outboundIF string) error {
-	if subnetCIDR == "" || outboundIF == "" {
-		return nil
-	}
-	_ = exec.Command("iptables", "-t", "nat", "-D", "POSTROUTING", "-s", subnetCIDR, "-o", outboundIF, "-j", "MASQUERADE").Run()
-	return nil
-}
-
-func fcPut(socketPath, apiPath string, payload any) error {
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-	req, err := http.NewRequest(http.MethodPut, "http://localhost"+apiPath, bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-		Transport: &http.Transport{
-			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-				var d net.Dialer
-				return d.DialContext(ctx, "unix", socketPath)
-			},
-		},
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 300 {
-		data, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("firecracker %s failed: %s: %s", apiPath, resp.Status, strings.TrimSpace(string(data)))
-	}
-	return nil
-}
-
-func waitForSocket(path string, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if _, err := os.Stat(path); err == nil {
-			return nil
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	return fmt.Errorf("socket %s did not appear", path)
-}
-
-func waitForPort(host string, port int, timeout time.Duration) error {
+func waitForSSHBanner(host string, port int, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	addr := net.JoinHostPort(host, strconv.Itoa(port))
 	for time.Now().Before(deadline) {
-		conn, err := net.DialTimeout("tcp", addr, 500*time.Millisecond)
+		conn, err := net.DialTimeout("tcp", addr, 1*time.Second)
 		if err == nil {
+			_ = conn.SetReadDeadline(time.Now().Add(1 * time.Second))
+			buf := make([]byte, 64)
+			n, readErr := conn.Read(buf)
 			_ = conn.Close()
-			return nil
+			if readErr == nil && strings.HasPrefix(string(buf[:n]), "SSH-") {
+				return nil
+			}
 		}
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(1 * time.Second)
 	}
-	return fmt.Errorf("port %s did not open", addr)
+	return fmt.Errorf("ssh banner did not appear on %s", addr)
 }
 
-func startSocatForward(pidPath, bindHost string, listenPort int, destHost string, destPort int, logPath string) error {
-	_ = stopPIDFile(pidPath)
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		return err
+func waitForHTTP(host string, port int, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	url := fmt.Sprintf("http://%s:%d/", host, port)
+	client := &http.Client{Timeout: 2 * time.Second}
+	for time.Now().Before(deadline) {
+		resp, err := client.Get(url)
+		if err == nil {
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
+			return nil
+		}
+		time.Sleep(1 * time.Second)
 	}
-	cmd := exec.Command("socat",
-		fmt.Sprintf("TCP-LISTEN:%d,bind=%s,reuseaddr,fork", listenPort, bindHost),
-		fmt.Sprintf("TCP:%s:%d", destHost, destPort),
-	)
-	cmd.Stdout = logFile
-	cmd.Stderr = logFile
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	if err := cmd.Start(); err != nil {
-		_ = logFile.Close()
-		return err
-	}
-	if err := os.WriteFile(pidPath, []byte(strconv.Itoa(cmd.Process.Pid)), 0o644); err != nil {
-		_ = cmd.Process.Kill()
-		_ = logFile.Close()
-		return err
-	}
-	go func() {
-		_ = cmd.Wait()
-		_ = logFile.Close()
-	}()
-	return nil
+	return fmt.Errorf("http service did not respond on %s", url)
 }
 
 func stopPIDFile(path string) error {
@@ -427,7 +289,7 @@ func stopPIDFile(path string) error {
 		proc, findErr := os.FindProcess(pid)
 		if findErr == nil {
 			_ = proc.Signal(syscall.SIGTERM)
-			time.Sleep(200 * time.Millisecond)
+			time.Sleep(300 * time.Millisecond)
 			_ = proc.Signal(syscall.SIGKILL)
 		}
 	}
@@ -456,6 +318,14 @@ func runningPID(path string) bool {
 	}
 	parts := strings.Fields(string(stat))
 	return len(parts) > 2 && parts[2] != "Z"
+}
+
+func jsonMarshalIndent(v any) ([]byte, error) {
+	data, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return append(data, '\n'), nil
 }
 
 func writeResolvConf(root string) error {
