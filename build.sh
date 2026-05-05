@@ -263,7 +263,7 @@ output_log="/var/log/smolagent.log"
 error_log="/var/log/smolagent.log"
 
 depend() {
-  after networking sshd localmount
+  after qemunet sshd localmount
 }
 
 start_pre() {
@@ -281,6 +281,26 @@ start_post() {
 EOF
   chmod 755 "$template_mount/etc/init.d/smolagentd"
 
+  cat > "$template_mount/etc/init.d/qemunet" <<'EOF'
+#!/sbin/openrc-run
+
+description="Configure guest networking for QEMU user-mode net"
+
+depend() {
+  after localmount
+  before sshd smolagentd
+}
+
+start() {
+  ip link set eth0 up || true
+  ip addr flush dev eth0 2>/dev/null || true
+  ip addr add 10.0.2.15/24 dev eth0
+  ip route replace default via 10.0.2.2 dev eth0
+  return 0
+}
+EOF
+  chmod 755 "$template_mount/etc/init.d/qemunet"
+
   mount --bind /dev "$template_mount/dev"
   mount --bind /proc "$template_mount/proc"
   mount --bind /sys "$template_mount/sys"
@@ -292,7 +312,7 @@ apk add bash ca-certificates doas iproute2 openrc openssh linux-virt >/dev/null
 rc-update add devfs sysinit >/dev/null
 rc-update add bootmisc boot >/dev/null
 rc-update add hostname boot >/dev/null
-rc-update add networking default >/dev/null
+rc-update add qemunet default >/dev/null
 rc-update add sshd default >/dev/null
 rc-update add smolagentd default >/dev/null
 echo "root:root" | chpasswd
