@@ -21,6 +21,8 @@ func (a *App) ensureBaseImage() error {
 	for _, path := range []string{
 		a.cfg.AgentBinaryPath,
 		a.cfg.QEMUBinary,
+		a.cfg.KernelImagePath,
+		a.cfg.InitramfsPath,
 		a.cfg.TemplateImagePath,
 	} {
 		if _, err := os.Stat(path); err != nil {
@@ -185,12 +187,14 @@ func launchQEMU(rt InstanceRuntime, inst Instance, cfg Config) error {
 		"-nodefaults",
 		"-no-user-config",
 		"-no-reboot",
-		"-boot", "order=c",
 		"-display", "none",
 		"-serial", "stdio",
 		"-monitor", "none",
 		"-m", strconv.Itoa(inst.MemoryMB),
 		"-smp", strconv.Itoa(inst.CPUCount),
+		"-kernel", cfg.KernelImagePath,
+		"-initrd", cfg.InitramfsPath,
+		"-append", "console=ttyS0 reboot=k panic=1 root=/dev/vda1 rootfstype=ext4 rootwait rw",
 		"-drive", "if=none,id=rootfs,format=raw,file=" + rt.DiskImagePath,
 		"-netdev", netdev,
 		"-device", "virtio-blk-pci,drive=rootfs",

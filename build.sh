@@ -179,11 +179,10 @@ build_guest_template() {
   template_mount="${SMOLVM_HOME}/.template-mnt"
   agent_binary_name=$(detect_agent_binary_name)
   template_mb=${SMOLVM_TEMPLATE_MB:-1024}
-  boot_offset=1048576
 
   rm -f "$template_image"
   truncate -s "${template_mb}M" "$template_image"
-  printf 'label: dos\nlabel-id: 0xfeedc0de\nunit: sectors\n\n%s,%s,L,*\n' 2048 '' | sfdisk "$template_image" >/dev/null
+  printf 'label: dos\nlabel-id: 0xfeedc0de\nunit: sectors\n\n2048,,L,*\n' | sfdisk "$template_image" >/dev/null
 
   loopdev=$(losetup --find --show --partscan "$template_image")
   mkfs.ext4 -F "${loopdev}p1" >/dev/null
@@ -289,7 +288,7 @@ EOF
 
 chroot "$template_mount" /bin/ash <<'EOF'
 apk update >/dev/null
-apk add bash ca-certificates doas iproute2 openrc openssh linux-virt grub grub-bios >/dev/null
+apk add bash ca-certificates doas iproute2 openrc openssh linux-virt >/dev/null
 rc-update add devfs sysinit >/dev/null
 rc-update add bootmisc boot >/dev/null
 rc-update add hostname boot >/dev/null
@@ -301,22 +300,8 @@ sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
 sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
 ssh-keygen -A >/dev/null 2>&1
 EOF
-
-  cat > "$template_mount/boot/grub/grub.cfg" <<'EOF'
-set timeout=0
-set default=0
-
-serial --unit=0 --speed=115200
-terminal_input console serial
-terminal_output console serial
-
-menuentry "smolvm" {
-  linux /boot/vmlinuz-virt root=/dev/vda1 rw console=ttyS0
-  initrd /boot/initramfs-virt
-}
-EOF
-
-  chroot "$template_mount" /bin/ash -c "grub-install --target=i386-pc --boot-directory=/boot ${loopdev}" >/dev/null
+  cp "$template_mount/boot/vmlinuz-virt" "$SMOLVM_ASSETS_DIR/vmlinuz-virt"
+  cp "$template_mount/boot/initramfs-virt" "$SMOLVM_ASSETS_DIR/initramfs-virt"
 
   umount "$template_mount/dev/pts"
   umount "$template_mount/dev"
