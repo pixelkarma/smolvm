@@ -166,9 +166,12 @@ func launchQEMU(rt InstanceRuntime, inst Instance, cfg Config) error {
 	}
 
 	machineArg := "-machine"
-	machineValue := "microvm,accel=tcg"
+	machineValue := "q35,accel=tcg"
 	if runtime.GOOS == "linux" {
-		machineValue = "microvm,accel=kvm:tcg"
+		machineValue = "q35,accel=kvm:tcg"
+	}
+	if runtime.GOOS == "darwin" {
+		machineValue = "q35,accel=hvf:tcg"
 	}
 
 	netdev := fmt.Sprintf(
@@ -201,9 +204,9 @@ func launchQEMU(rt InstanceRuntime, inst Instance, cfg Config) error {
 		"-append", bootArgs,
 		"-drive", "if=none,id=rootfs,format=raw,file=" + rt.DiskImagePath,
 		"-netdev", netdev,
-		"-device", "virtio-blk-device,drive=rootfs",
-		"-device", "virtio-net-device,netdev=net0,mac=" + rt.GuestMAC,
-		"-device", "virtio-rng-device",
+		"-device", "virtio-blk-pci,drive=rootfs",
+		"-device", "virtio-net-pci,netdev=net0,mac=" + rt.GuestMAC,
+		"-device", "virtio-rng-pci",
 	}
 	cmd := exec.Command(cfg.QEMUBinary, args...)
 	cmd.Stdout = logFile
