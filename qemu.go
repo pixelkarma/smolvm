@@ -21,8 +21,6 @@ func (a *App) ensureBaseImage() error {
 	for _, path := range []string{
 		a.cfg.AgentBinaryPath,
 		a.cfg.QEMUBinary,
-		a.cfg.KernelImagePath,
-		a.cfg.InitramfsPath,
 		a.cfg.TemplateImagePath,
 	} {
 		if _, err := os.Stat(path); err != nil {
@@ -182,30 +180,17 @@ func launchQEMU(rt InstanceRuntime, inst Instance, cfg Config) error {
 		inst.WebPort,
 		inst.WebPort,
 	)
-	bootArgs := strings.Join([]string{
-		"console=ttyS0",
-		"reboot=k",
-		"panic=1",
-		"root=/dev/vda",
-		"rootfstype=ext4",
-		"rootwait",
-		"rw",
-		"ip=10.0.2.15::10.0.2.2:255.255.255.0::eth0:off",
-	}, " ")
-
 	args := []string{
 		machineArg, machineValue,
 		"-nodefaults",
 		"-no-user-config",
 		"-no-reboot",
+		"-boot", "order=c",
 		"-display", "none",
 		"-serial", "stdio",
 		"-monitor", "none",
 		"-m", strconv.Itoa(inst.MemoryMB),
 		"-smp", strconv.Itoa(inst.CPUCount),
-		"-kernel", cfg.KernelImagePath,
-		"-initrd", cfg.InitramfsPath,
-		"-append", bootArgs,
 		"-drive", "if=none,id=rootfs,format=raw,file=" + rt.DiskImagePath,
 		"-netdev", netdev,
 		"-device", "virtio-blk-pci,drive=rootfs",
@@ -244,7 +229,7 @@ func ensureMountedDisk(rt InstanceRuntime) error {
 	}
 	mounted, _ := isMountpoint(rt.MountDir)
 	if !mounted {
-		if err := runCmd("", "mount", "-o", "loop", rt.DiskImagePath, rt.MountDir); err != nil {
+		if err := runCmd("", "mount", "-o", "loop,offset=1048576", rt.DiskImagePath, rt.MountDir); err != nil {
 			return err
 		}
 	}

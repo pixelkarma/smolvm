@@ -169,10 +169,6 @@ detect_qemu_binary() {
 
 download_guest_assets() {
   say "Downloading Alpine guest assets"
-  curl -fsSL -o "$SMOLVM_ASSETS_DIR/vmlinuz-virt" \
-    "https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/x86_64/netboot/vmlinuz-virt"
-  curl -fsSL -o "$SMOLVM_ASSETS_DIR/initramfs-virt" \
-    "https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/x86_64/netboot/initramfs-virt"
   curl -fsSL -o "$SMOLVM_ASSETS_DIR/alpine-minirootfs.tar.gz" \
     "https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/x86_64/alpine-minirootfs-3.21.2-x86_64.tar.gz"
 }
@@ -183,14 +179,18 @@ build_guest_template() {
   template_mount="${SMOLVM_HOME}/.template-mnt"
   agent_binary_name=$(detect_agent_binary_name)
   template_mb=${SMOLVM_TEMPLATE_MB:-1024}
+  boot_offset=1048576
 
   rm -f "$template_image"
   truncate -s "${template_mb}M" "$template_image"
-  mkfs.ext4 -F "$template_image" >/dev/null
+  printf 'label: dos\nlabel-id: 0xfeedc0de\nunit: sectors\n\n%s,%s,L,*\n' 2048 '' | sfdisk "$template_image" >/dev/null
+
+  loopdev=$(losetup --find --show --partscan "$template_image")
+  mkfs.ext4 -F "${loopdev}p1" >/dev/null
 
   mkdir -p "$template_mount"
-  mount -o loop "$template_image" "$template_mount"
-  trap 'umount "$template_mount" >/dev/null 2>&1 || true' EXIT INT TERM
+  mount "${loopdev}p1" "$template_mount"
+  trap 'umount "$template_mount" >/dev/null 2>&1 || true; losetup -d "$loopdev" >/dev/null 2>&1 || true' EXIT INT TERM
 
   tar -xzf "$SMOLVM_ASSETS_DIR/alpine-minirootfs.tar.gz" -C "$template_mount"
   mkdir -p \
@@ -213,7 +213,10 @@ auto lo
 iface lo inet loopback
 
 auto eth0
-iface eth0 inet manual
+iface eth0 inet static
+  address 10.0.2.15
+  netmask 255.255.255.0
+  gateway 10.0.2.2
 EOF
 
   cat > "$template_mount/etc/inittab" <<'EOF'
@@ -226,7 +229,7 @@ ttyS0::respawn:/sbin/getty -L ttyS0 115200 vt100
 EOF
 
   cat > "$template_mount/etc/fstab" <<'EOF'
-/dev/vda    /           ext4    defaults,noatime  0 1
+/dev/vda1   /           ext4    defaults,noatime  0 1
 devpts      /dev/pts    devpts  defaults          0 0
 proc        /proc       proc    defaults          0 0
 sysfs       /sys        sysfs   defaults          0 0
@@ -261,7 +264,7 @@ output_log="/var/log/smolagent.log"
 error_log="/var/log/smolagent.log"
 
 depend() {
-  after qemusshd localmount
+  after networking sshd localmount
 }
 
 start_pre() {
@@ -279,80 +282,19 @@ start_post() {
 EOF
   chmod 755 "$template_mount/etc/init.d/smolagentd"
 
-  cat > "$template_mount/etc/init.d/qemunet" <<'EOF'
-#!/sbin/openrc-run
-
-description="Re-apply kernel ip= networking late in boot"
-
-depend() {
-  after localmount
-  before qemusshd smolagentd
-}
-
-start() {
-  for param in $(cat /proc/cmdline); do
-    case "$param" in
-      ip=*)
-        IPCONF="${param#ip=}"
-        CLIENT_IP=$(echo "$IPCONF" | cut -d: -f1)
-        GATEWAY=$(echo "$IPCONF" | cut -d: -f3)
-        IFACE=$(echo "$IPCONF" | cut -d: -f6)
-        if [ -n "$CLIENT_IP" ] && [ -n "$IFACE" ]; then
-          echo "qemunet: applying $CLIENT_IP via $GATEWAY on $IFACE" > /dev/console
-          ip link set "$IFACE" up || true
-          ip addr flush dev "$IFACE" 2>/dev/null || true
-          ip addr add "$CLIENT_IP/24" dev "$IFACE"
-          if [ -n "$GATEWAY" ]; then
-            ip route replace default via "$GATEWAY" dev "$IFACE"
-          fi
-          ip addr show "$IFACE" > /dev/console 2>&1 || true
-          ip route show > /dev/console 2>&1 || true
-        fi
-        ;;
-    esac
-  done
-  return 0
-}
-EOF
-  chmod 755 "$template_mount/etc/init.d/qemunet"
-
-  cat > "$template_mount/etc/init.d/qemusshd" <<'EOF'
-#!/sbin/openrc-run
-
-description="smolvm ssh service"
-command="/usr/sbin/sshd"
-command_args="-D -e"
-pidfile="/run/sshd.pid"
-command_background="yes"
-
-depend() {
-  after qemunet localmount
-}
-
-start_pre() {
-  echo "qemusshd: start_pre" > /dev/console
-  mkdir -p /run/sshd /root/.ssh
-}
-
-start_post() {
-  echo "qemusshd: started" > /dev/console
-}
-EOF
-  chmod 755 "$template_mount/etc/init.d/qemusshd"
-
   mount --bind /dev "$template_mount/dev"
   mount --bind /proc "$template_mount/proc"
   mount --bind /sys "$template_mount/sys"
   mount -t devpts devpts "$template_mount/dev/pts"
 
-  chroot "$template_mount" /bin/ash <<'EOF'
+chroot "$template_mount" /bin/ash <<'EOF'
 apk update >/dev/null
-apk add bash ca-certificates doas iproute2 openrc openssh >/dev/null
+apk add bash ca-certificates doas iproute2 openrc openssh linux-virt grub grub-bios >/dev/null
 rc-update add devfs sysinit >/dev/null
 rc-update add bootmisc boot >/dev/null
 rc-update add hostname boot >/dev/null
-rc-update add qemunet default >/dev/null
-rc-update add qemusshd default >/dev/null
+rc-update add networking default >/dev/null
+rc-update add sshd default >/dev/null
 rc-update add smolagentd default >/dev/null
 echo "root:root" | chpasswd
 sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
@@ -360,11 +302,28 @@ sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd
 ssh-keygen -A >/dev/null 2>&1
 EOF
 
+  cat > "$template_mount/boot/grub/grub.cfg" <<'EOF'
+set timeout=0
+set default=0
+
+serial --unit=0 --speed=115200
+terminal_input console serial
+terminal_output console serial
+
+menuentry "smolvm" {
+  linux /boot/vmlinuz-virt root=/dev/vda1 rw console=ttyS0
+  initrd /boot/initramfs-virt
+}
+EOF
+
+  chroot "$template_mount" /bin/ash -c "grub-install --target=i386-pc --boot-directory=/boot ${loopdev}" >/dev/null
+
   umount "$template_mount/dev/pts"
   umount "$template_mount/dev"
   umount "$template_mount/proc"
   umount "$template_mount/sys"
   umount "$template_mount"
+  losetup -d "$loopdev"
   rmdir "$template_mount" >/dev/null 2>&1 || true
   trap - EXIT INT TERM
 }
@@ -404,8 +363,6 @@ write_config_file() {
   "default_openai_api_key": "${default_openai_api_key}",
   "admin_password": "${admin_password}",
   "qemu_binary_path": "${qemu_binary}",
-  "kernel_image_path": "${SMOLVM_ASSETS_DIR}/vmlinuz-virt",
-  "initramfs_path": "${SMOLVM_ASSETS_DIR}/initramfs-virt",
   "template_image_path": "${SMOLVM_ASSETS_DIR}/alpine-template.ext4"
 }
 EOF

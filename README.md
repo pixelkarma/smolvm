@@ -53,8 +53,6 @@ The important fields are:
   "default_openai_api_key": "sk-...",
   "admin_password": "changeme",
   "qemu_binary_path": "/usr/bin/qemu-system-x86_64",
-  "kernel_image_path": "~/.smolvm/assets/vmlinuz-virt",
-  "initramfs_path": "~/.smolvm/assets/initramfs-virt",
   "template_image_path": "~/.smolvm/assets/alpine-template.ext4"
 }
 ```
