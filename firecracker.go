@@ -185,7 +185,8 @@ func launchQEMU(rt InstanceRuntime, inst Instance, cfg Config) error {
 		"console=ttyS0",
 		"reboot=k",
 		"panic=1",
-		"root=/dev/vda",
+		"root=/dev/sda",
+		"rootwait",
 		"rw",
 		"ip=10.0.2.15::10.0.2.2:255.255.255.0::eth0:off",
 	}, " ")
@@ -202,11 +203,9 @@ func launchQEMU(rt InstanceRuntime, inst Instance, cfg Config) error {
 		"-smp", strconv.Itoa(inst.CPUCount),
 		"-kernel", cfg.KernelImagePath,
 		"-append", bootArgs,
-		"-drive", "if=none,id=rootfs,format=raw,file=" + rt.DiskImagePath,
+		"-drive", "file=" + rt.DiskImagePath + ",format=raw,if=ide,index=0,media=disk",
 		"-netdev", netdev,
-		"-device", "virtio-blk-pci,drive=rootfs",
-		"-device", "virtio-net-pci,netdev=net0,mac=" + rt.GuestMAC,
-		"-device", "virtio-rng-pci",
+		"-device", "e1000,netdev=net0,mac=" + rt.GuestMAC,
 	}
 	cmd := exec.Command(cfg.QEMUBinary, args...)
 	cmd.Stdout = logFile
