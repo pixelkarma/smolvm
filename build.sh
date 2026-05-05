@@ -171,6 +171,8 @@ download_guest_assets() {
   say "Downloading Alpine guest assets"
   curl -fsSL -o "$SMOLVM_ASSETS_DIR/vmlinuz-virt" \
     "https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/x86_64/netboot/vmlinuz-virt"
+  curl -fsSL -o "$SMOLVM_ASSETS_DIR/initramfs-virt" \
+    "https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/x86_64/netboot/initramfs-virt"
   curl -fsSL -o "$SMOLVM_ASSETS_DIR/alpine-minirootfs.tar.gz" \
     "https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/x86_64/alpine-minirootfs-3.21.2-x86_64.tar.gz"
 }
@@ -224,7 +226,7 @@ ttyS0::respawn:/sbin/getty -L ttyS0 115200 vt100
 EOF
 
   cat > "$template_mount/etc/fstab" <<'EOF'
-/dev/sda    /           ext4    defaults,noatime  0 1
+/dev/vda    /           ext4    defaults,noatime  0 1
 devpts      /dev/pts    devpts  defaults          0 0
 proc        /proc       proc    defaults          0 0
 sysfs       /sys        sysfs   defaults          0 0
@@ -403,6 +405,7 @@ write_config_file() {
   "admin_password": "${admin_password}",
   "qemu_binary_path": "${qemu_binary}",
   "kernel_image_path": "${SMOLVM_ASSETS_DIR}/vmlinuz-virt",
+  "initramfs_path": "${SMOLVM_ASSETS_DIR}/initramfs-virt",
   "template_image_path": "${SMOLVM_ASSETS_DIR}/alpine-template.ext4"
 }
 EOF

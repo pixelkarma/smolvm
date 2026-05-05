@@ -30,6 +30,9 @@ func LoadConfig(path string) (Config, error) {
 	if cfg.KernelImagePath == "" {
 		return cfg, fmt.Errorf("kernel_image_path is required")
 	}
+	if cfg.InitramfsPath == "" {
+		return cfg, fmt.Errorf("initramfs_path is required")
+	}
 	if cfg.TemplateImagePath == "" {
 		return cfg, fmt.Errorf("template_image_path is required")
 	}

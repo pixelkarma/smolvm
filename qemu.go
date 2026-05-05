@@ -22,6 +22,7 @@ func (a *App) ensureBaseImage() error {
 		a.cfg.AgentBinaryPath,
 		a.cfg.QEMUBinary,
 		a.cfg.KernelImagePath,
+		a.cfg.InitramfsPath,
 		a.cfg.TemplateImagePath,
 	} {
 		if _, err := os.Stat(path); err != nil {
@@ -185,7 +186,7 @@ func launchQEMU(rt InstanceRuntime, inst Instance, cfg Config) error {
 		"console=ttyS0",
 		"reboot=k",
 		"panic=1",
-		"root=/dev/sda",
+		"root=/dev/vda",
 		"rootwait",
 		"rw",
 		"ip=10.0.2.15::10.0.2.2:255.255.255.0::eth0:off",
@@ -202,10 +203,13 @@ func launchQEMU(rt InstanceRuntime, inst Instance, cfg Config) error {
 		"-m", strconv.Itoa(inst.MemoryMB),
 		"-smp", strconv.Itoa(inst.CPUCount),
 		"-kernel", cfg.KernelImagePath,
+		"-initrd", cfg.InitramfsPath,
 		"-append", bootArgs,
-		"-drive", "file=" + rt.DiskImagePath + ",format=raw,if=ide,index=0,media=disk",
+		"-drive", "if=none,id=rootfs,format=raw,file=" + rt.DiskImagePath,
 		"-netdev", netdev,
-		"-device", "e1000,netdev=net0,mac=" + rt.GuestMAC,
+		"-device", "virtio-blk-pci,drive=rootfs",
+		"-device", "virtio-net-pci,netdev=net0,mac=" + rt.GuestMAC,
+		"-device", "virtio-rng-pci",
 	}
 	cmd := exec.Command(cfg.QEMUBinary, args...)
 	cmd.Stdout = logFile

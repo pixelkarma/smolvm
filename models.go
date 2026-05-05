@@ -12,6 +12,7 @@ type Config struct {
 	AdminPassword       string `json:"admin_password"`
 	QEMUBinary          string `json:"qemu_binary_path"`
 	KernelImagePath     string `json:"kernel_image_path"`
+	InitramfsPath       string `json:"initramfs_path"`
 	TemplateImagePath   string `json:"template_image_path"`
 }
 
