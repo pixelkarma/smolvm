@@ -187,6 +187,7 @@ func launchQEMU(rt InstanceRuntime, inst Instance, cfg Config) error {
 		"reboot=k",
 		"panic=1",
 		"root=/dev/vda",
+		"rootfstype=ext4",
 		"rootwait",
 		"rw",
 		"ip=10.0.2.15::10.0.2.2:255.255.255.0::eth0:off",
