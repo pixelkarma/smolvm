@@ -169,8 +169,8 @@ detect_qemu_binary() {
 
 download_guest_assets() {
   say "Downloading Alpine guest assets"
-  curl -fsSL -o "$SMOLVM_ASSETS_DIR/vmlinux.bin" \
-    "https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.11/x86_64/vmlinux-6.1.102"
+  curl -fsSL -o "$SMOLVM_ASSETS_DIR/vmlinuz-virt" \
+    "https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/x86_64/netboot/vmlinuz-virt"
   curl -fsSL -o "$SMOLVM_ASSETS_DIR/alpine-minirootfs.tar.gz" \
     "https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/x86_64/alpine-minirootfs-3.21.2-x86_64.tar.gz"
 }
@@ -224,7 +224,7 @@ ttyS0::respawn:/sbin/getty -L ttyS0 115200 vt100
 EOF
 
   cat > "$template_mount/etc/fstab" <<'EOF'
-/dev/vda    /           ext4    defaults,noatime  0 1
+/dev/sda    /           ext4    defaults,noatime  0 1
 devpts      /dev/pts    devpts  defaults          0 0
 proc        /proc       proc    defaults          0 0
 sysfs       /sys        sysfs   defaults          0 0
@@ -259,7 +259,7 @@ output_log="/var/log/smolagent.log"
 error_log="/var/log/smolagent.log"
 
 depend() {
-  after fcsshd localmount
+  after qemusshd localmount
 }
 
 start_pre() {
@@ -277,14 +277,14 @@ start_post() {
 EOF
   chmod 755 "$template_mount/etc/init.d/smolagentd"
 
-  cat > "$template_mount/etc/init.d/fcpinip" <<'EOF'
+  cat > "$template_mount/etc/init.d/qemunet" <<'EOF'
 #!/sbin/openrc-run
 
 description="Re-apply kernel ip= networking late in boot"
 
 depend() {
   after localmount
-  before fcsshd smolagentd
+  before qemusshd smolagentd
 }
 
 start() {
@@ -296,7 +296,7 @@ start() {
         GATEWAY=$(echo "$IPCONF" | cut -d: -f3)
         IFACE=$(echo "$IPCONF" | cut -d: -f6)
         if [ -n "$CLIENT_IP" ] && [ -n "$IFACE" ]; then
-          echo "fcpinip: applying $CLIENT_IP via $GATEWAY on $IFACE" > /dev/console
+          echo "qemunet: applying $CLIENT_IP via $GATEWAY on $IFACE" > /dev/console
           ip link set "$IFACE" up || true
           ip addr flush dev "$IFACE" 2>/dev/null || true
           ip addr add "$CLIENT_IP/24" dev "$IFACE"
@@ -312,9 +312,9 @@ start() {
   return 0
 }
 EOF
-  chmod 755 "$template_mount/etc/init.d/fcpinip"
+  chmod 755 "$template_mount/etc/init.d/qemunet"
 
-  cat > "$template_mount/etc/init.d/fcsshd" <<'EOF'
+  cat > "$template_mount/etc/init.d/qemusshd" <<'EOF'
 #!/sbin/openrc-run
 
 description="smolvm ssh service"
@@ -324,19 +324,19 @@ pidfile="/run/sshd.pid"
 command_background="yes"
 
 depend() {
-  after fcpinip localmount
+  after qemunet localmount
 }
 
 start_pre() {
-  echo "fcsshd: start_pre" > /dev/console
+  echo "qemusshd: start_pre" > /dev/console
   mkdir -p /run/sshd /root/.ssh
 }
 
 start_post() {
-  echo "fcsshd: started" > /dev/console
+  echo "qemusshd: started" > /dev/console
 }
 EOF
-  chmod 755 "$template_mount/etc/init.d/fcsshd"
+  chmod 755 "$template_mount/etc/init.d/qemusshd"
 
   mount --bind /dev "$template_mount/dev"
   mount --bind /proc "$template_mount/proc"
@@ -349,8 +349,8 @@ apk add bash ca-certificates doas iproute2 openrc openssh >/dev/null
 rc-update add devfs sysinit >/dev/null
 rc-update add bootmisc boot >/dev/null
 rc-update add hostname boot >/dev/null
-rc-update add fcpinip default >/dev/null
-rc-update add fcsshd default >/dev/null
+rc-update add qemunet default >/dev/null
+rc-update add qemusshd default >/dev/null
 rc-update add smolagentd default >/dev/null
 echo "root:root" | chpasswd
 sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
@@ -402,7 +402,7 @@ write_config_file() {
   "default_openai_api_key": "${default_openai_api_key}",
   "admin_password": "${admin_password}",
   "qemu_binary_path": "${qemu_binary}",
-  "kernel_image_path": "${SMOLVM_ASSETS_DIR}/vmlinux.bin",
+  "kernel_image_path": "${SMOLVM_ASSETS_DIR}/vmlinuz-virt",
   "template_image_path": "${SMOLVM_ASSETS_DIR}/alpine-template.ext4"
 }
 EOF
