@@ -348,6 +348,8 @@ write_config_file() {
   "default_openai_api_key": "${default_openai_api_key}",
   "admin_password": "${admin_password}",
   "qemu_binary_path": "${qemu_binary}",
+  "kernel_image_path": "${SMOLVM_ASSETS_DIR}/vmlinuz-virt",
+  "initramfs_path": "${SMOLVM_ASSETS_DIR}/initramfs-virt",
   "template_image_path": "${SMOLVM_ASSETS_DIR}/alpine-template.ext4"
 }
 EOF
