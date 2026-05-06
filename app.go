@@ -104,6 +104,7 @@ func (a *App) initializeSettings() error {
 
 func (a *App) Routes() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("/internal/instance-config", a.handleInternalInstanceConfig)
 	mux.HandleFunc("/login", a.handleLogin)
 	mux.HandleFunc("/logout", a.handleLogout)
 	mux.HandleFunc("/api/", a.requireAuth(a.handleShelleyRootProxy))
