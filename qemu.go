@@ -45,15 +45,12 @@ func (a *App) startInstance(inst Instance, settings Settings) error {
 		return err
 	}
 	if err := waitForSSHBanner("127.0.0.1", rt.SSHPort, 90*time.Second); err != nil {
-		_ = stopInstanceRuntime(rt, a.cfg)
 		return fmt.Errorf("guest ssh did not become reachable: %w", err)
 	}
 	if err := provisionGuest(rt, inst, settings, a.cfg); err != nil {
-		_ = stopInstanceRuntime(rt, a.cfg)
 		return fmt.Errorf("guest provisioning failed: %w", err)
 	}
 	if err := waitForHTTP("127.0.0.1", inst.ShelleyPort, 120*time.Second); err != nil {
-		_ = stopInstanceRuntime(rt, a.cfg)
 		return fmt.Errorf("agent did not become reachable: %w", err)
 	}
 	return nil
