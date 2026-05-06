@@ -27,36 +27,37 @@
           <tr>
             <th>Name</th>
             <th>Status</th>
+            <th>Active</th>
             <th>Resources</th>
-            <th>Ports</th>
             <th>Links</th>
             <th>Actions</th>
           </tr>
         </thead>
         <tbody>
           {{range .Instances}}
-          <tr>
+          <tr data-agent-url="{{.ShelleyURL}}">
             <td>
               <div><strong>{{.Name}}</strong></div>
               <div class="muted mono">{{.Slug}}</div>
             </td>
             <td><span class="status {{.Status}}">{{.Status}}</span></td>
+            <td><span class="status checking js-active-status">checking</span></td>
             <td>{{.MemoryMB}} MB, {{.CPUCount}} CPU, {{.DiskMB}} MB disk</td>
             <td>
-              <div>App: <span class="mono">{{.WebPort}}</span></div>
-              <div class="muted">Agent private: <span class="mono">{{.ShelleyPort}}</span></div>
-            </td>
-            <td>
-              <div><a href="{{.ShelleyURL}}">Open Agent</a></div>
-              <div><a href="{{.AppURL}}" target="_blank" rel="noreferrer">Open App</a></div>
-              <div><a href="/instances/{{.ID}}/logs" target="_blank" rel="noreferrer">Logs</a></div>
-            </td>
-            <td>
               <div class="actions">
-                <form class="inline" method="post" action="/instances/{{.ID}}/start"><button type="submit">Start</button></form>
-                <form class="inline" method="post" action="/instances/{{.ID}}/stop"><button class="secondary" type="submit">Stop</button></form>
-                <form class="inline" method="post" action="/instances/{{.ID}}/delete" onsubmit="return confirm('Delete this instance and all files?');"><button class="danger" type="submit">Delete</button></form>
+                <a class="btn secondary" href="{{.ShelleyURL}}" target="_blank" rel="noreferrer">Agent</a>
+                <a class="btn secondary" href="{{.AppURL}}" target="_blank" rel="noreferrer">Web App</a>
               </div>
+            </td>
+            <td>
+              <details class="menu">
+                <summary class="icon-btn" aria-label="Instance actions">...</summary>
+                <div class="menu-panel">
+                  <form class="menu-form" method="post" action="/instances/{{.ID}}/start"><button type="submit">Start</button></form>
+                  <form class="menu-form" method="post" action="/instances/{{.ID}}/stop"><button class="secondary" type="submit">Stop</button></form>
+                  <form class="menu-form" method="post" action="/instances/{{.ID}}/delete" onsubmit="return confirm('Delete this instance and all files?');"><button class="danger" type="submit">Delete</button></form>
+                </div>
+              </details>
             </td>
           </tr>
           {{end}}
@@ -67,6 +68,28 @@
       {{end}}
     </div>
   </main>
+  <script>
+    (() => {
+      const rows = document.querySelectorAll('tr[data-agent-url]');
+      for (const row of rows) {
+        const statusEl = row.querySelector('.js-active-status');
+        const url = row.dataset.agentUrl;
+        if (!statusEl || !url) continue;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 10000);
+        fetch(url, { method: 'OPTIONS', signal: controller.signal, credentials: 'same-origin' })
+          .then(() => {
+            statusEl.textContent = 'active';
+            statusEl.className = 'status active js-active-status';
+          })
+          .catch(() => {
+            statusEl.textContent = 'inactive';
+            statusEl.className = 'status inactive js-active-status';
+          })
+          .finally(() => clearTimeout(timer));
+      }
+    })();
+  </script>
 </body>
 </html>
 {{end}}

@@ -18,10 +18,19 @@
   .status { display: inline-block; padding: 4px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; background: #eaf0f6; }
   .status.running { background: #dbf6df; color: #0c6b2c; }
   .status.stopped { background: #eef2f6; color: #425466; }
+  .status.checking { background: #fff5d7; color: #7c5a00; }
+  .status.active { background: #dbf6df; color: #0c6b2c; }
+  .status.inactive { background: #ffe8e8; color: #9f2020; }
   .btn, button { appearance: none; border: 0; border-radius: 10px; background: #0b5fff; color: #fff; padding: 10px 14px; cursor: pointer; font: inherit; }
   .btn.secondary, button.secondary { background: #eef2f6; color: #14202b; }
   .btn.danger, button.danger { background: #b42318; }
   form.inline { display: inline; }
+  .icon-btn { list-style: none; display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 10px; background: #eef2f6; color: #14202b; cursor: pointer; font: inherit; font-size: 18px; line-height: 1; border: 0; user-select: none; }
+  .icon-btn::-webkit-details-marker { display: none; }
+  details.menu { position: relative; display: inline-block; }
+  .menu-panel { position: absolute; right: 0; top: calc(100% + 6px); min-width: 140px; background: #fff; border: 1px solid #d9e1e8; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,.08); padding: 8px; display: grid; gap: 8px; z-index: 10; }
+  .menu-form { margin: 0; }
+  .menu-form button { width: 100%; text-align: left; }
   input, textarea { width: 100%; box-sizing: border-box; border: 1px solid #c7d2dc; border-radius: 10px; padding: 10px 12px; font: inherit; background: #fff; }
   label { display: grid; gap: 6px; font-size: 14px; font-weight: 600; color: #334455; }
   textarea { min-height: 220px; resize: vertical; }
