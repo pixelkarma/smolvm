@@ -38,9 +38,7 @@ func EnsureBootstrapConfig(path string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := os.Stat(resolvedPath); err == nil {
-		return nil
-	} else if !os.IsNotExist(err) {
+	if _, err := os.Stat(resolvedPath); err != nil && !os.IsNotExist(err) {
 		return err
 	}
 
