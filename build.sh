@@ -305,9 +305,34 @@ EOF
 }
 
 build_golden_image() {
+  if [[ -f "$GOLDEN_IMAGE_PATH" ]]; then
+    say "Existing golden image found"
+    echo "Golden image: $GOLDEN_IMAGE_PATH"
+    if [[ ! -t 0 ]]; then
+      fail "golden image exists and no interactive terminal is available; remove it or rerun interactively"
+    fi
+    while true; do
+      printf 'Use existing golden image? [Y/n]: '
+      read -r answer
+      case "${answer:-Y}" in
+        Y|y|yes|YES)
+          say "Reusing existing golden image"
+          return
+          ;;
+        N|n|no|NO)
+          say "Rebuilding golden image"
+          rm -f "$GOLDEN_IMAGE_PATH"
+          break
+          ;;
+        *)
+          echo "Enter y or n." >&2
+          ;;
+      esac
+    done
+  fi
+
   say "Building Alpine golden image"
   mkdir -p "$SMOLVM_TMP_DIR"
-  rm -f "$GOLDEN_IMAGE_PATH"
   qemu-img create -f qcow2 "$GOLDEN_IMAGE_PATH" "${SMOLVM_GOLDEN_SIZE:-8G}" >/dev/null
 
   local expect_script="$SMOLVM_TMP_DIR/alpine-install.expect"
