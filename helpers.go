@@ -34,16 +34,17 @@ func buildInstancePrompt(inst Instance) string {
 - OS: Alpine Linux
 - Architecture: %s
 - Private agent port: 9000
-- Project web port: %d
+- Guest web port: 80
+- Host web port: %d
 - CPU limit: %d
 - Memory limit: %d MB
 - Writable disk: %d MB
 
 Instructions:
-- If you run a web app, bind it to 0.0.0.0:%d
-- Assume users will reach the app over the assigned host port %d
+- If you run a web app, bind it to 0.0.0.0:80
+- Assume users will reach the app over the assigned host port %d, which is forwarded to guest port 80
 - Use Bash when needed, but keep Alpine compatibility in mind
-- Conserve memory and disk when selecting tooling and dependencies`, runtime.GOARCH, inst.WebPort, inst.CPUCount, inst.MemoryMB, inst.DiskMB, inst.WebPort, inst.WebPort)
+- Conserve memory and disk when selecting tooling and dependencies`, runtime.GOARCH, inst.WebPort, inst.CPUCount, inst.MemoryMB, inst.DiskMB, inst.WebPort)
 }
 
 func parseInstanceForm(r *http.Request) (Instance, error) {
