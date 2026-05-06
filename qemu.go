@@ -169,6 +169,7 @@ func launchQEMU(rt InstanceRuntime, inst Instance, cfg Config) error {
 	args := []string{
 		"-m", strconv.Itoa(inst.MemoryMB),
 		"-smp", strconv.Itoa(inst.CPUCount),
+		"-smbios", fmt.Sprintf("type=1,serial=smolvm-instance:%d", inst.ID),
 		"-drive", "file=" + rt.DiskImagePath + ",format=qcow2,if=virtio",
 		"-netdev", netdev,
 		"-device", "virtio-net,netdev=net0",
