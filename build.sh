@@ -218,8 +218,8 @@ expect {
   }
 }
 
-send "mkdir -p /mnt/target /mnt/hostshare\r"
-expect { -re "# " {} }
+send "mkdir -p /mnt/target /mnt/hostshare; echo __SMOLVM_MKDIR_OK__\r"
+expect { -re "__SMOLVM_MKDIR_OK__" {} }
 send "cat > /root/postinstall.sh <<'POSTINSTALL'\r"
 send "#!/bin/sh\r"
 send "set -eu\r"
@@ -293,8 +293,8 @@ send "echo '__SMOLVM_POSTINSTALL_OK__'\r"
 send "poweroff\r"
 send "POSTINSTALL\r"
 expect { -re "# " {} }
-send "chmod +x /root/postinstall.sh\r"
-expect { -re "# " {} }
+send "chmod +x /root/postinstall.sh; echo __SMOLVM_POSTSCRIPT_READY__\r"
+expect { -re "__SMOLVM_POSTSCRIPT_READY__" {} }
 send "sh /root/postinstall.sh\r"
 expect {
   -re "__SMOLVM_POSTINSTALL_OK__" {}
