@@ -184,46 +184,46 @@ expect {
     send "y\r"
     exp_continue
   }
+  -re "Installation is complete\\. Please reboot\\." {}
+}
+
+expect {
   -re "\r\n# " {}
   -re "# " {}
 }
 
-expect {
-  -re "login:" { send "root\r" }
-  eof { exit 1 }
-}
-
-expect {
-  -re "Password:" { send "\r"; exp_continue }
-  -re "# " {}
-}
-
-send "echo 'root:$rootpass' | chpasswd\r"
+send "mkdir -p /mnt/target /mnt/hostshare\r"
 expect { -re "# " {} }
-send "apk update\r"
+send "mount /dev/vda3 /mnt/target || mount /dev/vda2 /mnt/target || mount /dev/vda1 /mnt/target\r"
 expect { -re "# " {} }
-send "apk add bash build-base ca-certificates curl doas git go openssh sqlite\r"
+send "mount --bind /dev /mnt/target/dev\r"
 expect { -re "# " {} }
-send "mkdir -p /mnt/hostshare /root/.ssh /root/.smolvm /workspace /var/lib/smolagent\r"
+send "mount --bind /proc /mnt/target/proc\r"
+expect { -re "# " {} }
+send "mount --bind /sys /mnt/target/sys\r"
 expect { -re "# " {} }
 send "mount -t 9p -o trans=virtio,version=9p2000.L hostshare /mnt/hostshare || { modprobe 9pnet_virtio; mount -t 9p -o trans=virtio,version=9p2000.L hostshare /mnt/hostshare; }\r"
 expect { -re "# " {} }
-send "cd /mnt/hostshare && go build -buildvcs=false -o /usr/local/bin/smolagent ./cmd/smolagent\r"
+send "mkdir -p /mnt/target/mnt/hostshare\r"
 expect { -re "# " {} }
+send "mount --bind /mnt/hostshare /mnt/target/mnt/hostshare\r"
+expect { -re "# " {} }
+send "cat > /mnt/target/root/provision.sh <<'PROVISION'\r"
+send "#!/bin/sh\r"
+send "set -eu\r"
+send "echo 'root:$rootpass' | chpasswd\r"
+send "apk update\r"
+send "apk add bash build-base ca-certificates curl doas git go openssh sqlite\r"
+send "mkdir -p /root/.ssh /root/.smolvm /workspace /var/lib/smolagent\r"
 send "chmod 700 /root/.ssh\r"
-expect { -re "# " {} }
 send "cat > /root/.ssh/authorized_keys <<'KEY'\r"
 send -- "$pubkey\r"
 send "KEY\r"
-expect { -re "# " {} }
 send "chmod 600 /root/.ssh/authorized_keys\r"
-expect { -re "# " {} }
+send "cd /mnt/hostshare && go build -buildvcs=false -o /usr/local/bin/smolagent ./cmd/smolagent\r"
 send "ssh-keygen -A\r"
-expect { -re "# " {} }
 send "rc-update add sshd default\r"
-expect { -re "# " {} }
 send "sed -i 's/^#\\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config\r"
-expect { -re "# " {} }
 send "cat > /root/.smolvm/smolvm.config.json <<'JSON'\r"
 send "{\r"
 send "  \"listen_addr\": \":9000\",\r"
@@ -242,7 +242,6 @@ send "- The agent UI itself is private behind the admin proxy. Do not ask the us
 send "- Prefer lightweight dependencies and workflows appropriate for Alpine Linux.\r"
 send "- Be mindful of the assigned CPU, RAM, and disk limits.\r"
 send "AGENTS\r"
-expect { -re "# " {} }
 send "cat > /etc/init.d/smolagentd <<'SERVICE'\r"
 send "#!/sbin/openrc-run\r"
 send "description=\"smolagent runtime\"\r"
@@ -256,12 +255,27 @@ send "depend() {\r"
 send "  need net\r"
 send "}\r"
 send "SERVICE\r"
-expect { -re "# " {} }
 send "chmod +x /etc/init.d/smolagentd\r"
-expect { -re "# " {} }
 send "rc-update add smolagentd default\r"
+send "PROVISION\r"
+expect { -re "# " {} }
+send "chmod +x /mnt/target/root/provision.sh\r"
+expect { -re "# " {} }
+send "chroot /mnt/target /bin/sh /root/provision.sh\r"
 expect { -re "# " {} }
 send "sync\r"
+expect { -re "# " {} }
+send "umount /mnt/target/mnt/hostshare || true\r"
+expect { -re "# " {} }
+send "umount /mnt/hostshare || true\r"
+expect { -re "# " {} }
+send "umount /mnt/target/dev || true\r"
+expect { -re "# " {} }
+send "umount /mnt/target/proc || true\r"
+expect { -re "# " {} }
+send "umount /mnt/target/sys || true\r"
+expect { -re "# " {} }
+send "umount /mnt/target || true\r"
 expect { -re "# " {} }
 send "poweroff\r"
 expect eof
