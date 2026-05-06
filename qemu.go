@@ -11,7 +11,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -160,64 +159,33 @@ rc-service smolagentd restart
 }
 
 func launchQEMU(rt InstanceRuntime, inst Instance, cfg Config) error {
-	if err := os.MkdirAll(filepath.Dir(rt.SerialLogPath), 0o755); err != nil {
-		return err
-	}
-	logFile, err := os.OpenFile(rt.SerialLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		return err
-	}
-
-	machineValue := "q35,accel=tcg"
-	switch runtime.GOOS {
-	case "linux":
-		machineValue = "q35,accel=kvm:tcg"
-	case "darwin":
-		machineValue = "q35,accel=tcg"
-	}
-
 	netdev := fmt.Sprintf(
-		"user,id=net0,hostfwd=tcp:127.0.0.1:%d-:22,hostfwd=tcp:127.0.0.1:%d-:9000,hostfwd=tcp:0.0.0.0:%d-:%d",
+		"user,id=net0,hostfwd=tcp::%d-:22,hostfwd=tcp:127.0.0.1:%d-:9000,hostfwd=tcp::%d-:80",
 		rt.SSHPort,
 		inst.ShelleyPort,
-		inst.WebPort,
 		inst.WebPort,
 	)
 
 	args := []string{
-		"-name", rt.MachineName,
-		"-machine", machineValue,
-		"-nodefaults",
-		"-no-user-config",
-		"-no-reboot",
-		"-display", "none",
-		"-serial", "stdio",
-		"-monitor", "none",
 		"-m", strconv.Itoa(inst.MemoryMB),
 		"-smp", strconv.Itoa(inst.CPUCount),
 		"-drive", "file=" + rt.DiskImagePath + ",format=qcow2,if=virtio",
 		"-netdev", netdev,
-		"-device", "virtio-net-pci,netdev=net0",
-		"-device", "virtio-rng-pci",
+		"-device", "virtio-net,netdev=net0",
+		"-display", "none",
+		"-serial", "none",
+		"-daemonize",
 	}
 
 	cmd := exec.Command(cfg.QEMUBinary, args...)
-	cmd.Stdout = logFile
-	cmd.Stderr = logFile
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
-		_ = logFile.Close()
 		return err
 	}
 	if err := os.WriteFile(rt.PIDPath, []byte(strconv.Itoa(cmd.Process.Pid)), 0o644); err != nil {
 		_ = cmd.Process.Kill()
-		_ = logFile.Close()
 		return err
 	}
-	go func() {
-		_ = cmd.Wait()
-		_ = logFile.Close()
-	}()
 	return nil
 }
 
