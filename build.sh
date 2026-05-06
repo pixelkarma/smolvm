@@ -98,9 +98,15 @@ download_alpine_assets() {
   local base_url="https://dl-cdn.alpinelinux.org/alpine/v3.21"
   local netboot_url="$base_url/releases/$arch/netboot"
   mkdir -p "$SMOLVM_ASSETS_DIR"
-  curl -fsSL -o "$SMOLVM_ASSETS_DIR/vmlinuz-lts" "$netboot_url/vmlinuz-lts"
-  curl -fsSL -o "$SMOLVM_ASSETS_DIR/initramfs-lts" "$netboot_url/initramfs-lts"
-  curl -fsSL -o "$SMOLVM_ASSETS_DIR/modloop-lts" "$netboot_url/modloop-lts"
+  if [[ ! -f "$SMOLVM_ASSETS_DIR/vmlinuz-lts" ]]; then
+    curl -fsSL -o "$SMOLVM_ASSETS_DIR/vmlinuz-lts" "$netboot_url/vmlinuz-lts"
+  fi
+  if [[ ! -f "$SMOLVM_ASSETS_DIR/initramfs-lts" ]]; then
+    curl -fsSL -o "$SMOLVM_ASSETS_DIR/initramfs-lts" "$netboot_url/initramfs-lts"
+  fi
+  if [[ ! -f "$SMOLVM_ASSETS_DIR/modloop-lts" ]]; then
+    curl -fsSL -o "$SMOLVM_ASSETS_DIR/modloop-lts" "$netboot_url/modloop-lts"
+  fi
 }
 
 qemu_accel() {
@@ -284,11 +290,6 @@ EOF
 }
 
 build_golden_image() {
-  if [[ -f "$GOLDEN_IMAGE_PATH" && "${SMOLVM_REBUILD_GOLDEN:-0}" != "1" ]]; then
-    say "Reusing existing golden image"
-    return
-  fi
-
   say "Building Alpine golden image"
   mkdir -p "$SMOLVM_TMP_DIR"
   rm -f "$GOLDEN_IMAGE_PATH"
