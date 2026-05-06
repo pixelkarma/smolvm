@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -19,11 +20,9 @@ import (
 
 func (a *App) ensureBaseImage() error {
 	for _, path := range []string{
-		a.cfg.AgentBinaryPath,
 		a.cfg.QEMUBinary,
-		a.cfg.KernelImagePath,
-		a.cfg.InitramfsPath,
 		a.cfg.TemplateImagePath,
+		a.cfg.GuestSSHKeyPath,
 	} {
 		if _, err := os.Stat(path); err != nil {
 			return fmt.Errorf("required asset not found at %s", path)
@@ -37,33 +36,37 @@ func (a *App) startInstance(inst Instance, settings Settings) error {
 	if err := os.MkdirAll(rt.InstanceDir, 0o755); err != nil {
 		return err
 	}
-	if err := stopInstanceRuntime(rt); err != nil {
+	if err := stopInstanceRuntime(rt, a.cfg); err != nil {
 		return err
 	}
-	if err := prepareGuestDisk(rt, inst, settings, a.cfg); err != nil {
+	if err := prepareGuestDisk(rt, a.cfg); err != nil {
 		return err
 	}
 	if err := launchQEMU(rt, inst, a.cfg); err != nil {
 		return err
 	}
-	if err := waitForSSHBanner("127.0.0.1", rt.SSHPort, 60*time.Second); err != nil {
-		_ = stopInstanceRuntime(rt)
+	if err := waitForSSHBanner("127.0.0.1", rt.SSHPort, 90*time.Second); err != nil {
+		_ = stopInstanceRuntime(rt, a.cfg)
 		return fmt.Errorf("guest ssh did not become reachable: %w", err)
 	}
+	if err := provisionGuest(rt, inst, settings, a.cfg); err != nil {
+		_ = stopInstanceRuntime(rt, a.cfg)
+		return fmt.Errorf("guest provisioning failed: %w", err)
+	}
 	if err := waitForHTTP("127.0.0.1", inst.ShelleyPort, 120*time.Second); err != nil {
-		_ = stopInstanceRuntime(rt)
+		_ = stopInstanceRuntime(rt, a.cfg)
 		return fmt.Errorf("agent did not become reachable: %w", err)
 	}
 	return nil
 }
 
 func (a *App) stopInstance(inst Instance) error {
-	return stopInstanceRuntime(a.runtimeFor(inst))
+	return stopInstanceRuntime(a.runtimeFor(inst), a.cfg)
 }
 
 func (a *App) deleteInstance(inst Instance) error {
 	rt := a.runtimeFor(inst)
-	_ = stopInstanceRuntime(rt)
+	_ = stopInstanceRuntime(rt, a.cfg)
 	if err := os.RemoveAll(rt.InstanceDir); err != nil {
 		return err
 	}
@@ -71,7 +74,8 @@ func (a *App) deleteInstance(inst Instance) error {
 }
 
 func (a *App) instanceStatus(inst Instance) string {
-	if runningPID(a.runtimeFor(inst).PIDPath) {
+	pid, _, err := findQEMUProcess(a.runtimeFor(inst), a.cfg)
+	if err == nil && pid > 0 {
 		return "running"
 	}
 	return "stopped"
@@ -85,37 +89,19 @@ func instanceLogs(inst Instance, rt InstanceRuntime) (string, error) {
 	return string(data), nil
 }
 
-func prepareGuestDisk(rt InstanceRuntime, inst Instance, settings Settings, cfg Config) error {
+func prepareGuestDisk(rt InstanceRuntime, cfg Config) error {
 	if _, err := os.Stat(rt.DiskImagePath); os.IsNotExist(err) {
-		if err := copyFile(cfg.TemplateImagePath, rt.DiskImagePath, 0o644); err != nil {
-			return err
-		}
+		return copyFile(cfg.TemplateImagePath, rt.DiskImagePath, 0o644)
 	}
-	if err := ensureMountedDisk(rt); err != nil {
-		return err
-	}
-	defer func() {
-		_ = unmount(rt.MountDir)
-	}()
-	for _, dir := range []string{
-		filepath.Join(rt.MountDir, "root", ".smolvm"),
-		filepath.Join(rt.MountDir, "root", ".ssh"),
-		filepath.Join(rt.MountDir, "workspace"),
-		filepath.Join(rt.MountDir, "var", "lib", "smolagent"),
-		filepath.Join(rt.MountDir, "etc", "conf.d"),
-		filepath.Join(rt.MountDir, "usr", "local", "bin"),
-	} {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return err
-		}
-	}
-	if err := copyFile(cfg.AgentBinaryPath, filepath.Join(rt.MountDir, "usr", "local", "bin", "smolagent"), 0o755); err != nil {
-		return err
-	}
-	return writeGuestFiles(rt, inst, settings, cfg)
+	return nil
 }
 
-func writeGuestFiles(rt InstanceRuntime, inst Instance, settings Settings, cfg Config) error {
+func provisionGuest(rt InstanceRuntime, inst Instance, settings Settings, cfg Config) error {
+	stageDir := filepath.Join(rt.InstanceDir, "staging")
+	if err := os.MkdirAll(stageDir, 0o755); err != nil {
+		return err
+	}
+
 	agentCfg := map[string]any{
 		"listen_addr":     ":9000",
 		"db_path":         "/var/lib/smolagent/smolagent.db",
@@ -127,52 +113,67 @@ func writeGuestFiles(rt InstanceRuntime, inst Instance, settings Settings, cfg C
 	if inst.APIKey != "" {
 		agentCfg["openai_api_key"] = inst.APIKey
 	}
-	data, err := jsonMarshalIndent(agentCfg)
+	cfgData, err := jsonMarshalIndent(agentCfg)
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(rt.MountDir, "root", ".smolvm", "smolvm.config.json"), data, 0o600); err != nil {
+
+	globalPromptPath := filepath.Join(stageDir, "global-AGENTS.md")
+	workspacePromptPath := filepath.Join(stageDir, "workspace-AGENTS.md")
+	configPath := filepath.Join(stageDir, "smolvm.config.json")
+	provisionPath := filepath.Join(stageDir, "provision.sh")
+
+	if err := os.WriteFile(configPath, cfgData, 0o600); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(rt.MountDir, "root", ".smolvm", "AGENTS.md"), []byte(settings.GlobalPrompt+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(globalPromptPath, []byte(settings.GlobalPrompt+"\n"), 0o644); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(rt.MountDir, "workspace", "AGENTS.md"), []byte(inst.InitialPrompt+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(workspacePromptPath, []byte(inst.InitialPrompt+"\n"), 0o644); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(rt.MountDir, "root", ".smolvm", "instance.env"), []byte("PROJECT_WEB_PORT="+strconv.Itoa(inst.WebPort)+"\n"), 0o644); err != nil {
+
+	provisionScript := fmt.Sprintf(`#!/bin/sh
+set -eu
+mkdir -p /root/.smolvm /workspace /var/lib/smolagent
+install -m 600 /tmp/smolvm.config.json /root/.smolvm/smolvm.config.json
+install -m 644 /tmp/global-AGENTS.md /root/.smolvm/AGENTS.md
+install -m 644 /tmp/workspace-AGENTS.md /workspace/AGENTS.md
+printf 'PROJECT_WEB_PORT=%d\n' > /root/.smolvm/instance.env
+printf '%s\n' > /etc/hostname
+hostname '%s' || true
+rc-service smolagentd restart
+`, inst.WebPort, inst.Slug, shellSingleQuote(inst.Slug))
+	if err := os.WriteFile(provisionPath, []byte(provisionScript), 0o755); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(rt.MountDir, "etc", "hostname"), []byte(inst.Slug+"\n"), 0o644); err != nil {
+
+	for _, localPath := range []string{configPath, globalPromptPath, workspacePromptPath, provisionPath} {
+		if err := scpToGuest(cfg, rt, localPath, "/tmp/"+filepath.Base(localPath)); err != nil {
+			return err
+		}
+	}
+	if err := runGuestCommand(cfg, rt, "sh /tmp/provision.sh"); err != nil {
 		return err
 	}
-	hosts := "127.0.0.1 localhost\n10.0.2.15 " + inst.Slug + "\n"
-	if err := os.WriteFile(filepath.Join(rt.MountDir, "etc", "hosts"), []byte(hosts), 0o644); err != nil {
-		return err
-	}
-	if err := writeResolvConf(rt.MountDir); err != nil {
-		return err
-	}
-	pubKey, err := ensureGuestDebugKey(filepath.Dir(cfg.AgentBinaryPath))
-	if err != nil {
-		return err
-	}
-	return writeAuthorizedKey(rt.MountDir, pubKey)
+	return nil
 }
 
 func launchQEMU(rt InstanceRuntime, inst Instance, cfg Config) error {
+	if err := os.MkdirAll(filepath.Dir(rt.SerialLogPath), 0o755); err != nil {
+		return err
+	}
 	logFile, err := os.OpenFile(rt.SerialLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return err
 	}
 
-	machineArg := "-machine"
 	machineValue := "q35,accel=tcg"
-	if runtime.GOOS == "linux" {
+	switch runtime.GOOS {
+	case "linux":
 		machineValue = "q35,accel=kvm:tcg"
-	}
-	if runtime.GOOS == "darwin" {
-		machineValue = "q35,accel=hvf:tcg"
+	case "darwin":
+		machineValue = "q35,accel=tcg"
 	}
 
 	netdev := fmt.Sprintf(
@@ -182,8 +183,10 @@ func launchQEMU(rt InstanceRuntime, inst Instance, cfg Config) error {
 		inst.WebPort,
 		inst.WebPort,
 	)
+
 	args := []string{
-		machineArg, machineValue,
+		"-name", rt.MachineName,
+		"-machine", machineValue,
 		"-nodefaults",
 		"-no-user-config",
 		"-no-reboot",
@@ -192,15 +195,12 @@ func launchQEMU(rt InstanceRuntime, inst Instance, cfg Config) error {
 		"-monitor", "none",
 		"-m", strconv.Itoa(inst.MemoryMB),
 		"-smp", strconv.Itoa(inst.CPUCount),
-		"-kernel", cfg.KernelImagePath,
-		"-initrd", cfg.InitramfsPath,
-		"-append", "console=ttyS0 reboot=k panic=1 root=/dev/vda1 rootfstype=ext4 rootwait rw",
-		"-drive", "if=none,id=rootfs,format=raw,file=" + rt.DiskImagePath,
+		"-drive", "file=" + rt.DiskImagePath + ",format=qcow2,if=virtio",
 		"-netdev", netdev,
-		"-device", "virtio-blk-pci,drive=rootfs",
-		"-device", "virtio-net-pci,netdev=net0,mac=" + rt.GuestMAC,
+		"-device", "virtio-net-pci,netdev=net0",
 		"-device", "virtio-rng-pci",
 	}
+
 	cmd := exec.Command(cfg.QEMUBinary, args...)
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
@@ -221,22 +221,16 @@ func launchQEMU(rt InstanceRuntime, inst Instance, cfg Config) error {
 	return nil
 }
 
-func stopInstanceRuntime(rt InstanceRuntime) error {
-	_ = stopPIDFile(rt.PIDPath)
-	_ = unmount(rt.MountDir)
-	return nil
-}
-
-func ensureMountedDisk(rt InstanceRuntime) error {
-	if err := os.MkdirAll(rt.MountDir, 0o755); err != nil {
-		return err
-	}
-	mounted, _ := isMountpoint(rt.MountDir)
-	if !mounted {
-		if err := runCmd("", "mount", "-o", "loop,offset=1048576", rt.DiskImagePath, rt.MountDir); err != nil {
-			return err
+func stopInstanceRuntime(rt InstanceRuntime, cfg Config) error {
+	pid, _, err := findQEMUProcess(rt, cfg)
+	if err == nil && pid > 0 {
+		if proc, findErr := os.FindProcess(pid); findErr == nil {
+			_ = proc.Signal(syscall.SIGTERM)
+			time.Sleep(500 * time.Millisecond)
+			_ = proc.Signal(syscall.SIGKILL)
 		}
 	}
+	_ = os.Remove(rt.PIDPath)
 	return nil
 }
 
@@ -275,45 +269,79 @@ func waitForHTTP(host string, port int, timeout time.Duration) error {
 	return fmt.Errorf("http service did not respond on %s", url)
 }
 
-func stopPIDFile(path string) error {
-	data, err := os.ReadFile(path)
+func findQEMUProcess(rt InstanceRuntime, cfg Config) (int, string, error) {
+	cmd := exec.Command("ps", "-ax", "-o", "pid=", "-o", "command=")
+	out, err := cmd.Output()
 	if err != nil {
-		return nil
+		return 0, "", err
 	}
-	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
-	if err == nil && pid > 0 {
-		proc, findErr := os.FindProcess(pid)
-		if findErr == nil {
-			_ = proc.Signal(syscall.SIGTERM)
-			time.Sleep(300 * time.Millisecond)
-			_ = proc.Signal(syscall.SIGKILL)
+	qemuName := filepath.Base(cfg.QEMUBinary)
+	scanner := bufio.NewScanner(bytes.NewReader(out))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		parts := strings.Fields(line)
+		if len(parts) < 2 {
+			continue
+		}
+		pid, err := strconv.Atoi(parts[0])
+		if err != nil {
+			continue
+		}
+		command := strings.TrimSpace(line[len(parts[0]):])
+		if !strings.Contains(command, qemuName) {
+			continue
+		}
+		if strings.Contains(command, rt.MachineName) && strings.Contains(command, rt.DiskImagePath) {
+			return pid, strings.TrimSpace(command), nil
 		}
 	}
-	return os.Remove(path)
+	if err := scanner.Err(); err != nil {
+		return 0, "", err
+	}
+	return 0, "", fmt.Errorf("qemu process not found")
 }
 
-func runningPID(path string) bool {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return false
+func guestSSHArgs(cfg Config, rt InstanceRuntime) []string {
+	return []string{
+		"-i", cfg.GuestSSHKeyPath,
+		"-p", strconv.Itoa(rt.SSHPort),
+		"-o", "IdentitiesOnly=yes",
+		"-o", "StrictHostKeyChecking=no",
+		"-o", "UserKnownHostsFile=/dev/null",
+		"root@127.0.0.1",
 	}
-	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
-	if err != nil || pid <= 0 {
-		return false
+}
+
+func scpToGuest(cfg Config, rt InstanceRuntime, localPath, remotePath string) error {
+	args := []string{
+		"-i", cfg.GuestSSHKeyPath,
+		"-P", strconv.Itoa(rt.SSHPort),
+		"-o", "IdentitiesOnly=yes",
+		"-o", "StrictHostKeyChecking=no",
+		"-o", "UserKnownHostsFile=/dev/null",
+		localPath,
+		"root@127.0.0.1:" + remotePath,
 	}
-	proc, err := os.FindProcess(pid)
-	if err != nil {
-		return false
+	return runCommand("", "scp", args...)
+}
+
+func runGuestCommand(cfg Config, rt InstanceRuntime, command string) error {
+	args := append(guestSSHArgs(cfg, rt), command)
+	return runCommand("", "ssh", args...)
+}
+
+func runCommand(dir, name string, args ...string) error {
+	cmd := exec.Command(name, args...)
+	cmd.Dir = dir
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if out, err := cmd.Output(); err != nil {
+		return fmt.Errorf("%s %s failed: %v: %s%s", name, strings.Join(args, " "), err, strings.TrimSpace(stderr.String()), strings.TrimSpace(string(out)))
 	}
-	if proc.Signal(syscall.Signal(0)) != nil {
-		return false
-	}
-	stat, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
-	if err != nil {
-		return true
-	}
-	parts := strings.Fields(string(stat))
-	return len(parts) > 2 && parts[2] != "Z"
+	return nil
 }
 
 func jsonMarshalIndent(v any) ([]byte, error) {
@@ -322,43 +350,6 @@ func jsonMarshalIndent(v any) ([]byte, error) {
 		return nil, err
 	}
 	return append(data, '\n'), nil
-}
-
-func writeResolvConf(root string) error {
-	src := "/etc/resolv.conf"
-	dest := filepath.Join(root, "etc", "resolv.conf")
-	if _, err := os.Stat(src); err == nil {
-		return copyFile(src, dest, 0o644)
-	}
-	return os.WriteFile(dest, []byte("nameserver 1.1.1.1\nnameserver 8.8.8.8\n"), 0o644)
-}
-
-func writeAuthorizedKey(root, pubKey string) error {
-	sshDir := filepath.Join(root, "root", ".ssh")
-	if err := os.MkdirAll(sshDir, 0o700); err != nil {
-		return err
-	}
-	if err := os.WriteFile(filepath.Join(sshDir, "authorized_keys"), []byte(strings.TrimSpace(pubKey)+"\n"), 0o600); err != nil {
-		return err
-	}
-	return nil
-}
-
-func ensureGuestDebugKey(hostDir string) (string, error) {
-	keyPath := filepath.Join(hostDir, "guest-debug-key")
-	pubPath := keyPath + ".pub"
-	if _, err := os.Stat(pubPath); err == nil {
-		data, readErr := os.ReadFile(pubPath)
-		return string(data), readErr
-	}
-	if err := runCmd("", "ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", keyPath); err != nil {
-		return "", err
-	}
-	data, err := os.ReadFile(pubPath)
-	if err != nil {
-		return "", err
-	}
-	return string(data), nil
 }
 
 func copyFile(src, dest string, mode os.FileMode) error {
@@ -381,32 +372,6 @@ func copyFile(src, dest string, mode os.FileMode) error {
 	return out.Close()
 }
 
-func isMountpoint(path string) (bool, error) {
-	err := exec.Command("mountpoint", "-q", path).Run()
-	if err == nil {
-		return true, nil
-	}
-	if exit, ok := err.(*exec.ExitError); ok && exit.ExitCode() == 1 {
-		return false, nil
-	}
-	return false, err
-}
-
-func unmount(path string) error {
-	mounted, err := isMountpoint(path)
-	if err != nil || !mounted {
-		return err
-	}
-	return runCmd("", "umount", path)
-}
-
-func runCmd(dir, name string, args ...string) error {
-	cmd := exec.Command(name, args...)
-	cmd.Dir = dir
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if out, err := cmd.Output(); err != nil {
-		return fmt.Errorf("%s %s failed: %v: %s%s", name, strings.Join(args, " "), err, strings.TrimSpace(stderr.String()), strings.TrimSpace(string(out)))
-	}
-	return nil
+func shellSingleQuote(s string) string {
+	return strings.ReplaceAll(s, "'", `'"'"'`)
 }

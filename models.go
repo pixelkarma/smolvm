@@ -6,14 +6,12 @@ type Config struct {
 	ListenAddr          string `json:"listen_addr"`
 	DataDir             string `json:"data_dir"`
 	DBPath              string `json:"db_path"`
-	AgentBinaryPath     string `json:"agent_binary_path"`
 	PublicHost          string `json:"public_host"`
 	DefaultOpenAIAPIKey string `json:"default_openai_api_key"`
 	AdminPassword       string `json:"admin_password"`
 	QEMUBinary          string `json:"qemu_binary_path"`
-	KernelImagePath     string `json:"kernel_image_path"`
-	InitramfsPath       string `json:"initramfs_path"`
 	TemplateImagePath   string `json:"template_image_path"`
+	GuestSSHKeyPath     string `json:"guest_ssh_key_path"`
 }
 
 type Instance struct {
@@ -43,14 +41,8 @@ type InstanceRuntime struct {
 	MachineName     string
 	InstanceDir     string
 	DiskImagePath   string
-	MountDir        string
-	WorkspaceDir    string
-	ConfigDir       string
-	VarLibDir       string
 	SerialLogPath   string
 	PIDPath         string
-	GuestIP         string
-	GuestMAC        string
 	SSHPort         int
 }
 

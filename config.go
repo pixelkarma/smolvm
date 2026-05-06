@@ -21,20 +21,14 @@ func LoadConfig(path string) (Config, error) {
 	if cfg.DataDir == "" {
 		return cfg, fmt.Errorf("data_dir is required")
 	}
-	if cfg.AgentBinaryPath == "" {
-		return cfg, fmt.Errorf("agent_binary_path is required")
-	}
 	if cfg.QEMUBinary == "" {
 		cfg.QEMUBinary = "qemu-system-x86_64"
 	}
-	if cfg.KernelImagePath == "" {
-		return cfg, fmt.Errorf("kernel_image_path is required")
-	}
-	if cfg.InitramfsPath == "" {
-		return cfg, fmt.Errorf("initramfs_path is required")
-	}
 	if cfg.TemplateImagePath == "" {
 		return cfg, fmt.Errorf("template_image_path is required")
+	}
+	if cfg.GuestSSHKeyPath == "" {
+		return cfg, fmt.Errorf("guest_ssh_key_path is required")
 	}
 	return cfg, nil
 }

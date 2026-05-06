@@ -464,19 +464,12 @@ func appURL(host string, port int) string {
 
 func (a *App) runtimeFor(inst Instance) InstanceRuntime {
 	base := filepath.Join(a.cfg.DataDir, "instances", fmt.Sprintf("%d-%s", inst.ID, inst.Slug))
-	mac := fmt.Sprintf("52:54:00:%02x:%02x:%02x", byte(inst.ID>>16), byte(inst.ID>>8), byte(inst.ID))
 	return InstanceRuntime{
-		MachineName:     fmt.Sprintf("smolvm-%s", inst.Slug),
+		MachineName:   fmt.Sprintf("smolvm-%d-%s", inst.ID, inst.Slug),
 		InstanceDir:     base,
-		DiskImagePath:   filepath.Join(base, "disk.img"),
-		MountDir:        filepath.Join(base, "mnt"),
-		WorkspaceDir:    filepath.Join(base, "mnt", "workspace"),
-		ConfigDir:       filepath.Join(base, "mnt", "root-smolvm"),
-		VarLibDir:       filepath.Join(base, "mnt", "varlib"),
+		DiskImagePath:   filepath.Join(base, "disk.qcow2"),
 		SerialLogPath:   filepath.Join(base, "serial.log"),
 		PIDPath:         filepath.Join(base, "qemu.pid"),
-		GuestIP:         "10.0.2.15",
-		GuestMAC:        mac,
 		SSHPort:         10000 + int(inst.ID),
 	}
 }
