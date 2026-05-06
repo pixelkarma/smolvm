@@ -220,20 +220,16 @@ expect {
 
 send "mkdir -p /mnt/target /mnt/hostshare\r"
 expect { -re "# " {} }
+send "cat > /root/postinstall.sh <<'POSTINSTALL'\r"
+send "#!/bin/sh\r"
+send "set -eu\r"
 send "mount /dev/vda3 /mnt/target || mount /dev/vda2 /mnt/target || mount /dev/vda1 /mnt/target\r"
-expect { -re "# " {} }
 send "mount --bind /dev /mnt/target/dev\r"
-expect { -re "# " {} }
 send "mount --bind /proc /mnt/target/proc\r"
-expect { -re "# " {} }
 send "mount --bind /sys /mnt/target/sys\r"
-expect { -re "# " {} }
 send "mount -t 9p -o trans=virtio,version=9p2000.L hostshare /mnt/hostshare || { modprobe 9pnet_virtio; mount -t 9p -o trans=virtio,version=9p2000.L hostshare /mnt/hostshare; }\r"
-expect { -re "# " {} }
 send "mkdir -p /mnt/target/mnt/hostshare\r"
-expect { -re "# " {} }
 send "mount --bind /mnt/hostshare /mnt/target/mnt/hostshare\r"
-expect { -re "# " {} }
 send "cat > /mnt/target/root/provision.sh <<'PROVISION'\r"
 send "#!/bin/sh\r"
 send "set -eu\r"
@@ -284,26 +280,26 @@ send "SERVICE\r"
 send "chmod +x /etc/init.d/smolagentd\r"
 send "rc-update add smolagentd default\r"
 send "PROVISION\r"
-expect { -re "# " {} }
 send "chmod +x /mnt/target/root/provision.sh\r"
-expect { -re "# " {} }
 send "chroot /mnt/target /bin/sh /root/provision.sh\r"
-expect { -re "# " {} }
 send "sync\r"
-expect { -re "# " {} }
 send "umount /mnt/target/mnt/hostshare || true\r"
-expect { -re "# " {} }
 send "umount /mnt/hostshare || true\r"
-expect { -re "# " {} }
 send "umount /mnt/target/dev || true\r"
-expect { -re "# " {} }
 send "umount /mnt/target/proc || true\r"
-expect { -re "# " {} }
 send "umount /mnt/target/sys || true\r"
-expect { -re "# " {} }
 send "umount /mnt/target || true\r"
-expect { -re "# " {} }
+send "echo '__SMOLVM_POSTINSTALL_OK__'\r"
 send "poweroff\r"
+send "POSTINSTALL\r"
+expect { -re "# " {} }
+send "chmod +x /root/postinstall.sh\r"
+expect { -re "# " {} }
+send "sh /root/postinstall.sh\r"
+expect {
+  -re "__SMOLVM_POSTINSTALL_OK__" {}
+  eof {}
+}
 expect eof
 EOF
   chmod +x "$path"
