@@ -76,11 +76,11 @@ require_tools() {
 
 host_go_builds() {
   say "Building host binaries"
-  mkdir -p "$SMOLVM_BIN_DIR"
+  mkdir -p "$SMOLVM_BIN_DIR" "$SMOLVM_DIR/bin"
   (
     cd "$SMOLVM_DIR"
     go build -buildvcs=false -o "$SMOLVM_BIN_DIR/smolvm-admin" ./
-    go build -buildvcs=false -o "$SMOLVM_BIN_DIR/smolagent" ./cmd/smolagent
+    GOOS=linux GOARCH=amd64 go build -buildvcs=false -o "$SMOLVM_DIR/bin/smolagent-linux-amd64" ./cmd/smolagent
   )
 }
 
@@ -237,14 +237,14 @@ send "cat >> /etc/apk/repositories <<'EOF'\r"
 send "http://dl-cdn.alpinelinux.org/alpine/v3.21/community\r"
 send "EOF\r"
 send "apk update\r"
-send "apk add bash build-base ca-certificates curl doas git go openssh sqlite\r"
+send "apk add bash ca-certificates curl doas openssh sqlite\r"
 send "mkdir -p /root/.ssh /root/.smolvm /workspace /var/lib/smolagent\r"
 send "chmod 700 /root/.ssh\r"
 send "cat > /root/.ssh/authorized_keys <<'KEY'\r"
 send -- "$pubkey\r"
 send "KEY\r"
 send "chmod 600 /root/.ssh/authorized_keys\r"
-send "cd /mnt/hostshare && go build -buildvcs=false -o /usr/local/bin/smolagent ./cmd/smolagent\r"
+send "install -m 755 /mnt/hostshare/bin/smolagent-linux-amd64 /usr/local/bin/smolagent\r"
 send "ssh-keygen -A\r"
 send "rc-update add sshd default\r"
 send "sed -i 's/^#\\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config\r"
