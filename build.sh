@@ -255,7 +255,6 @@ send "  \"default_model\": \"gpt-5.4\",\r"
 send "  \"required_header\": \"X-SmolVM-Admin\"\r"
 send "}\r"
 send "JSON\r"
-expect { -re "# " {} }
 send "cat > /root/.smolvm/AGENTS.md <<'AGENTS'\r"
 send "Global smolvm guidance:\r"
 send "- You are running inside a managed Alpine Linux QEMU virtual machine.\r"
