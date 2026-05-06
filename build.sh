@@ -292,9 +292,7 @@ send "umount /mnt/target || true\r"
 send "echo '__SMOLVM_POSTINSTALL_OK__'\r"
 send "poweroff\r"
 send "POSTINSTALL\r"
-expect { -re "# " {} }
-send "chmod +x /root/postinstall.sh; echo __SMOLVM_POSTSCRIPT_READY__\r"
-expect { -re "__SMOLVM_POSTSCRIPT_READY__" {} }
+send "chmod +x /root/postinstall.sh\r"
 send "sh /root/postinstall.sh\r"
 expect {
   -re "__SMOLVM_POSTINSTALL_OK__" {}
