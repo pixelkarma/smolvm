@@ -185,17 +185,34 @@ expect {
 
 send "setup-alpine -e -f /root/answers\r"
 
+set install_complete 0
 expect {
   -re "Erase the above disk.*\\(y/n\\)" {
     send "y\r"
     exp_continue
   }
-  -re "Installation is complete\\. Please reboot\\." {}
-}
-
-expect {
-  -re "\r\n# " {}
-  -re "# " {}
+  -re "Installation is complete\\. Please reboot\\." {
+    set install_complete 1
+    exp_continue
+  }
+  -re "\r\n# " {
+    if {$install_complete} {
+      # Installer returned to shell after completing disk install.
+    } else {
+      exp_continue
+    }
+  }
+  -re "# " {
+    if {$install_complete} {
+      # Installer returned to shell after completing disk install.
+    } else {
+      exp_continue
+    }
+  }
+  eof {
+    puts stderr "setup-alpine exited before returning to a shell prompt"
+    exit 1
+  }
 }
 
 send "mkdir -p /mnt/target /mnt/hostshare\r"
