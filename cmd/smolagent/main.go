@@ -18,6 +18,9 @@ func main() {
 	flag.StringVar(&configPath, "config", defaultConfigPath, "Path to smolagent config JSON")
 	flag.Parse()
 
+	if err := agent.EnsureBootstrapConfig(configPath); err != nil {
+		log.Fatalf("failed to prepare smolagent config: %v", err)
+	}
 	cfg, err := agent.LoadConfig(configPath)
 	if err != nil {
 		log.Fatalf("failed to load smolagent config: %v", err)
