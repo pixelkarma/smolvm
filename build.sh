@@ -136,16 +136,19 @@ set rootpass [lindex $argv 5]
 set pubkey [lindex $argv 6]
 set accel [lindex $argv 7]
 set srcdir [lindex $argv 8]
+set transcript [lindex $argv 9]
+
+log_file -a $transcript
 
 spawn qemu-system-x86_64 \
-  -machine "q35,accel=$accel" \
+  -accel $accel \
   -m 2048 \
   -kernel $kernel \
   -initrd $initrd \
   -append "console=ttyS0 ip=dhcp alpine_repo=$repo modloop=$modloop_url" \
   -drive file=$img,format=qcow2,if=virtio \
   -netdev user,id=net0 \
-  -device virtio-net-pci,netdev=net0 \
+  -device virtio-net,netdev=net0 \
   -virtfs local,path=$srcdir,mount_tag=hostshare,security_model=none,readonly=on \
   -nographic
 
@@ -330,7 +333,8 @@ build_golden_image() {
     "${SMOLVM_GUEST_ROOT_PASSWORD:-root}" \
     "$pubkey" \
     "$(qemu_accel)" \
-    "$SMOLVM_DIR"
+    "$SMOLVM_DIR" \
+    "$SMOLVM_TMP_DIR/alpine-install.log"
 }
 
 write_host_config() {
