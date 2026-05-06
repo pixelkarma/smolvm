@@ -73,7 +73,7 @@ func (a *App) deleteInstance(inst Instance) error {
 }
 
 func (a *App) instanceStatus(inst Instance) string {
-	pid, _, err := findQEMUProcess(a.runtimeFor(inst), a.cfg)
+	pid, _, err := findQEMUProcess(a.runtimeFor(inst), inst, a.cfg)
 	if err == nil && pid > 0 {
 		return "running"
 	}
@@ -190,7 +190,7 @@ func launchQEMU(rt InstanceRuntime, inst Instance, cfg Config) error {
 }
 
 func stopInstanceRuntime(rt InstanceRuntime, cfg Config) error {
-	pid, _, err := findQEMUProcess(rt, cfg)
+	pid, _, err := findQEMUProcess(rt, Instance{}, cfg)
 	if err == nil && pid > 0 {
 		if proc, findErr := os.FindProcess(pid); findErr == nil {
 			_ = proc.Signal(syscall.SIGTERM)
@@ -237,7 +237,7 @@ func waitForHTTP(host string, port int, timeout time.Duration) error {
 	return fmt.Errorf("http service did not respond on %s", url)
 }
 
-func findQEMUProcess(rt InstanceRuntime, cfg Config) (int, string, error) {
+func findQEMUProcess(rt InstanceRuntime, inst Instance, cfg Config) (int, string, error) {
 	cmd := exec.Command("ps", "-ax", "-o", "pid=", "-o", "command=")
 	out, err := cmd.Output()
 	if err != nil {
@@ -262,7 +262,18 @@ func findQEMUProcess(rt InstanceRuntime, cfg Config) (int, string, error) {
 		if !strings.Contains(command, qemuName) {
 			continue
 		}
-		if strings.Contains(command, rt.MachineName) && strings.Contains(command, rt.DiskImagePath) {
+		if !strings.Contains(command, rt.DiskImagePath) {
+			continue
+		}
+		if inst.ID == 0 {
+			return pid, strings.TrimSpace(command), nil
+		}
+		sshForward := fmt.Sprintf("hostfwd=tcp::%d-:22", rt.SSHPort)
+		agentForward := fmt.Sprintf("hostfwd=tcp:127.0.0.1:%d-:9000", inst.ShelleyPort)
+		webForward := fmt.Sprintf("hostfwd=tcp::%d-:80", inst.WebPort)
+		if strings.Contains(command, sshForward) &&
+			strings.Contains(command, agentForward) &&
+			strings.Contains(command, webForward) {
 			return pid, strings.TrimSpace(command), nil
 		}
 	}
