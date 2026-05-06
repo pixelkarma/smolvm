@@ -112,8 +112,8 @@ download_alpine_assets() {
 qemu_accel() {
   case "$(uname -s)" in
     Linux)
-      if [[ "$(uname -m)" == "x86_64" ]]; then
-        printf '%s\n' "kvm:tcg"
+      if [[ "$(uname -m)" == "x86_64" ]] && [[ -e /dev/kvm ]] && [[ -r /dev/kvm ]] && [[ -w /dev/kvm ]]; then
+        printf '%s\n' "kvm"
         return
       fi
       ;;
