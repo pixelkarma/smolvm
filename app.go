@@ -19,7 +19,6 @@ type App struct {
 	dbPath   string
 	renderer *viewRenderer
 	sessions *sessionStore
-	jobs     *instanceJobStore
 }
 
 func NewApp(cfg Config) (*App, error) {
@@ -47,7 +46,6 @@ func NewApp(cfg Config) (*App, error) {
 		dbPath:   dbPath,
 		renderer: renderer,
 		sessions: newSessionStore(),
-		jobs:     newInstanceJobStore(),
 	}
 	if err := app.initializeSettings(); err != nil {
 		db.Close()
@@ -411,20 +409,9 @@ func (a *App) handleStartInstance(w http.ResponseWriter, r *http.Request, id int
 		http.NotFound(w, r)
 		return
 	}
-	settings, err := loadSettings(a.db, a.cfg)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if a.jobs.begin(inst.ID, "starting") {
-		go func(inst Instance, settings Settings) {
-			if err := a.startInstance(inst, settings); err != nil {
-				a.jobs.fail(inst.ID, "start", err)
-				return
-			}
-			a.jobs.clear(inst.ID)
-		}(inst, settings)
-	}
+	go func(inst Instance) {
+		_ = a.startInstance(inst)
+	}(inst)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
@@ -438,15 +425,9 @@ func (a *App) handleStopInstance(w http.ResponseWriter, r *http.Request, id int6
 		http.NotFound(w, r)
 		return
 	}
-	if a.jobs.begin(inst.ID, "stopping") {
-		go func(inst Instance) {
-			if err := a.stopInstance(inst); err != nil {
-				a.jobs.fail(inst.ID, "stop", err)
-				return
-			}
-			a.jobs.clear(inst.ID)
-		}(inst)
-	}
+	go func(inst Instance) {
+		_ = a.stopInstance(inst)
+	}(inst)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
@@ -460,15 +441,9 @@ func (a *App) handleDeleteInstance(w http.ResponseWriter, r *http.Request, id in
 		http.NotFound(w, r)
 		return
 	}
-	if a.jobs.begin(inst.ID, "deleting") {
-		go func(inst Instance) {
-			if err := a.deleteInstance(inst); err != nil {
-				a.jobs.fail(inst.ID, "delete", err)
-				return
-			}
-			a.jobs.clear(inst.ID)
-		}(inst)
-	}
+	go func(inst Instance) {
+		_ = a.deleteInstance(inst)
+	}(inst)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
