@@ -61,12 +61,14 @@ func (a *App) handleNewInstance(w http.ResponseWriter, r *http.Request) {
 		a.renderer.render(w, "instance_form.html", data)
 		return
 	}
-	if err := a.startInstance(inst, settings); err != nil {
-		_ = deleteInstanceRecord(a.db, inst.ID)
-		data.Instance = inst
-		data.Error = err.Error()
-		a.renderer.render(w, "instance_form.html", data)
-		return
+	if a.jobs.begin(inst.ID, "starting") {
+		go func(inst Instance, settings Settings) {
+			if err := a.startInstance(inst, settings); err != nil {
+				a.jobs.fail(inst.ID, "start", err)
+				return
+			}
+			a.jobs.clear(inst.ID)
+		}(inst, settings)
 	}
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }

@@ -73,6 +73,9 @@ func (a *App) deleteInstance(inst Instance) error {
 }
 
 func (a *App) instanceStatus(inst Instance) string {
+	if status, ok := a.jobs.status(inst.ID); ok {
+		return status
+	}
 	pid, _, err := findQEMUProcess(a.runtimeFor(inst), inst, a.cfg)
 	if err == nil && pid > 0 {
 		return "running"
