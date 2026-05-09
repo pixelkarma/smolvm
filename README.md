@@ -41,13 +41,10 @@ cd smolvm
 
 If a golden image already exists, the script asks whether to reuse it or rebuild it.
 
-Optional overrides:
+During `./build.sh`, the script prompts for the admin password. If you just press Enter, it uses:
 
-```sh
-SMOLVM_ADMIN_PASSWORD='change-this' \
-SMOLVM_PUBLIC_HOST='1.2.3.4' \
-SMOLVM_DEFAULT_OPENAI_API_KEY='sk-...' \
-./build.sh
+```text
+smolvm
 ```
 
 ## Run the admin
@@ -64,10 +61,10 @@ Default URL:
 http://SERVER_IP:8090/login
 ```
 
-Default password if you did not override it:
+Default password if you accept the build default:
 
 ```text
-changeme
+smolvm
 ```
 
 ## Config
@@ -84,20 +81,22 @@ Typical host config:
 {
   "listen_addr": ":8090",
   "data_dir": "/home/user/.smolvm/data",
-  "public_host": "192.168.1.54",
   "default_openai_api_key": "sk-...",
-  "admin_password": "changeme",
+  "admin_password": "smolvm",
   "qemu_binary_path": "/usr/bin/qemu-system-x86_64",
   "template_image_path": "/home/user/.smolvm/assets/alpine-golden.qcow2",
   "guest_ssh_key_path": "/home/user/.smolvm/keys/guest-admin"
 }
 ```
 
+`default_openai_api_key` is still written to the host config, but the guest now refreshes its runtime config from the admin on every launch instead of relying on a baked guest config file.
+
 ## How it works
 
 - The admin runs on port `8090`.
 - Each VM gets a copied QCOW2 disk from the golden image.
 - The admin launches QEMU daemonized and only tracks whether the VM process is present.
+- App links are generated from the current admin request host; there is no separate public-host setting anymore.
 - The private agent UI is proxied through the admin after login.
 - Public app ports start at `8100` and increment.
 - Guest SSH is forwarded to a host port starting at `10001`.
