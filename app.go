@@ -274,6 +274,16 @@ func (a *App) handleInstanceRoutes(w http.ResponseWriter, r *http.Request) {
 	switch parts[1] {
 	case "open":
 		a.handleOpenShelley(w, r, id)
+	case "terminal":
+		if len(parts) == 2 {
+			a.handleTerminalPage(w, r, id)
+			return
+		}
+		if len(parts) == 3 && parts[2] == "ws" {
+			a.handleTerminalWebsocket(w, r, id)
+			return
+		}
+		http.NotFound(w, r)
 	case "start":
 		a.handleStartInstance(w, r, id)
 	case "stop":
