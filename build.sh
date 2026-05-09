@@ -21,28 +21,8 @@ detect_home() {
   printf '%s/.smolvm\n' "$HOME"
 }
 
-detect_public_host() {
-  if [[ -n "${SMOLVM_PUBLIC_HOST:-}" ]]; then
-    printf '%s\n' "$SMOLVM_PUBLIC_HOST"
-    return
-  fi
-  if [[ "$(uname -s)" == "Darwin" ]]; then
-    ipconfig getifaddr en0 2>/dev/null || echo "127.0.0.1"
-    return
-  fi
-  if command -v ip >/dev/null 2>&1; then
-    ip -4 route get 1.1.1.1 2>/dev/null | awk '/src/ {for (i = 1; i <= NF; i++) if ($i == "src") {print $(i+1); exit}}'
-    return
-  fi
-  echo "127.0.0.1"
-}
-
 resolve_openai_key() {
-  if [[ -n "${SMOLVM_DEFAULT_OPENAI_API_KEY:-}" ]]; then
-    printf '%s\n' "$SMOLVM_DEFAULT_OPENAI_API_KEY"
-    return
-  fi
-  local key_file="${SMOLVM_KEY_FILE:-$HOME/.openai}"
+  local key_file="$HOME/.openai"
   if [[ -f "$key_file" ]]; then
     local first_line
     first_line=$(head -n 1 "$key_file" | tr -d '\r\n')
@@ -51,6 +31,20 @@ resolve_openai_key() {
       *) printf '%s\n' "$first_line" ;;
     esac
   fi
+}
+
+prompt_admin_password() {
+  local default_password="smolvm"
+  if [[ ! -t 0 ]]; then
+    printf '%s\n' "$default_password"
+    return
+  fi
+  printf 'Admin password [default: %s]: ' "$default_password" >&2
+  IFS= read -r password
+  if [[ -z "$password" ]]; then
+    password="$default_password"
+  fi
+  printf '%s\n' "$password"
 }
 
 require_tools() {
@@ -352,13 +346,14 @@ write_host_config() {
   say "Writing host config"
   local openai_key
   openai_key=$(resolve_openai_key || true)
+  local admin_password
+  admin_password=$(prompt_admin_password)
   cat > "$SMOLVM_CONFIG_PATH" <<EOF
 {
   "listen_addr": ":8090",
   "data_dir": "$SMOLVM_DATA_DIR",
-  "public_host": "$(detect_public_host)",
   "default_openai_api_key": "${openai_key}",
-  "admin_password": "${SMOLVM_ADMIN_PASSWORD:-changeme}",
+  "admin_password": "${admin_password}",
   "qemu_binary_path": "$(command -v qemu-system-x86_64)",
   "template_image_path": "$GOLDEN_IMAGE_PATH",
   "guest_ssh_key_path": "$GUEST_KEY_PATH"

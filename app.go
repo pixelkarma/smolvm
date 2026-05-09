@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -24,9 +25,6 @@ type App struct {
 func NewApp(cfg Config) (*App, error) {
 	if cfg.DataDir == "" {
 		return nil, errors.New("data dir is required")
-	}
-	if cfg.PublicHost == "" {
-		cfg.PublicHost = detectPublicHost()
 	}
 	if err := os.MkdirAll(cfg.DataDir, 0o755); err != nil {
 		return nil, err
@@ -79,11 +77,6 @@ func (a *App) initializeSettings() error {
 	}
 	if settings.DefaultOpenAIAPIKey == "" {
 		if err := saveSetting(a.db, "default_openai_api_key", a.cfg.DefaultOpenAIAPIKey); err != nil {
-			return err
-		}
-	}
-	if settings.PublicHost == "" {
-		if err := saveSetting(a.db, "public_host", a.cfg.PublicHost); err != nil {
 			return err
 		}
 	}
@@ -189,13 +182,14 @@ func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var views []InstanceView
+	adminHost := requestHost(r)
 	for _, inst := range instances {
 		status := a.instanceStatus(inst)
 		views = append(views, InstanceView{
 			Instance:   inst,
 			Status:     status,
 			ShelleyURL: fmt.Sprintf("/instances/%d/open", inst.ID),
-			AppURL:     appURL(settings.PublicHost, inst.WebPort),
+			AppURL:     appURL(adminHost, inst.WebPort),
 			CreatedAgo: "",
 		})
 	}
@@ -205,7 +199,7 @@ func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		Instances:           views,
 		DefaultOpenAIAPIKey: settings.DefaultOpenAIAPIKey,
 		GlobalPrompt:        settings.GlobalPrompt,
-		AdminHost:           settings.PublicHost,
+		AdminHost:           adminHost,
 	})
 }
 
@@ -219,7 +213,6 @@ func (a *App) handleSettings(w http.ResponseWriter, r *http.Request) {
 		Title:               "Settings",
 		GlobalPrompt:        settings.GlobalPrompt,
 		DefaultOpenAIAPIKey: settings.DefaultOpenAIAPIKey,
-		PublicHost:          settings.PublicHost,
 	}
 	if r.Method == http.MethodGet {
 		a.renderer.render(w, "settings.html", data)
@@ -235,7 +228,6 @@ func (a *App) handleSettings(w http.ResponseWriter, r *http.Request) {
 	}{
 		{"global_prompt", r.FormValue("global_prompt")},
 		{"default_openai_api_key", strings.TrimSpace(r.FormValue("default_openai_api_key"))},
-		{"public_host", strings.TrimSpace(r.FormValue("public_host"))},
 	} {
 		if err := saveSetting(a.db, kv.Key, kv.Value); err != nil {
 			data.Error = err.Error()
@@ -259,7 +251,6 @@ func (a *App) handleSettings(w http.ResponseWriter, r *http.Request) {
 	data.Success = "Settings saved"
 	data.GlobalPrompt = r.FormValue("global_prompt")
 	data.DefaultOpenAIAPIKey = strings.TrimSpace(r.FormValue("default_openai_api_key"))
-	data.PublicHost = strings.TrimSpace(r.FormValue("public_host"))
 	a.renderer.render(w, "settings.html", data)
 }
 
@@ -469,12 +460,25 @@ func (a *App) handleDeleteInstance(w http.ResponseWriter, r *http.Request, id in
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
-func detectPublicHost() string {
-	return "127.0.0.1"
-}
-
 func appURL(host string, port int) string {
 	return fmt.Sprintf("http://%s:%d", host, port)
+}
+
+func requestHost(r *http.Request) string {
+	host := strings.TrimSpace(r.Host)
+	if host == "" {
+		return "127.0.0.1"
+	}
+	if strings.HasPrefix(host, "[") {
+		if parsedHost, _, err := net.SplitHostPort(host); err == nil {
+			return strings.Trim(parsedHost, "[]")
+		}
+		return strings.Trim(host, "[]")
+	}
+	if parsedHost, _, err := net.SplitHostPort(host); err == nil {
+		return parsedHost
+	}
+	return host
 }
 
 func (a *App) runtimeFor(inst Instance) InstanceRuntime {
