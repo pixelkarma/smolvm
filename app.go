@@ -97,7 +97,10 @@ func (a *App) initializeSettings() error {
 
 func (a *App) Routes() http.Handler {
 	mux := http.NewServeMux()
-	mux.Handle("/static/", a.requireAuthHandler(http.StripPrefix("/static/", http.FileServer(http.Dir("static")))))
+	staticFiles, err := embeddedStaticFS()
+	if err == nil {
+		mux.Handle("/static/", a.requireAuthHandler(http.StripPrefix("/static/", http.FileServer(http.FS(staticFiles)))))
+	}
 	mux.HandleFunc("/internal/instance-config", a.handleInternalInstanceConfig)
 	mux.HandleFunc("/login", a.handleLogin)
 	mux.HandleFunc("/logout", a.handleLogout)
