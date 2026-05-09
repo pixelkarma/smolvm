@@ -79,7 +79,10 @@
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), 10000);
         fetch(url, { method: 'OPTIONS', signal: controller.signal, credentials: 'same-origin' })
-          .then(() => {
+          .then((response) => {
+            if (!response.ok) {
+              throw new Error(`status ${response.status}`);
+            }
             statusEl.textContent = 'active';
             statusEl.className = 'status active js-active-status';
           })
