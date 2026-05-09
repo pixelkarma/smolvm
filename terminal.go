@@ -6,7 +6,6 @@ import (
 	"os/exec"
 	"strconv"
 	"sync"
-	"syscall"
 
 	"github.com/creack/pty"
 	"github.com/gorilla/websocket"
@@ -68,7 +67,6 @@ func (a *App) handleTerminalWebsocket(w http.ResponseWriter, r *http.Request, id
 		"root@127.0.0.1",
 	}
 	cmd := exec.Command("ssh", args...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
