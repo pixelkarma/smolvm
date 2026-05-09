@@ -15,6 +15,12 @@ const sidebarEl = document.querySelector(".sidebar");
 let currentConversationId = null;
 const collapsedMessages = new Set();
 
+function updateDocumentTitle(title) {
+  const base = "smolagent";
+  const next = (title || "").trim();
+  document.title = next ? `${next} · ${base}` : base;
+}
+
 async function api(path, options = {}) {
   const response = await fetch(path, {
     headers: { "Content-Type": "application/json" },
@@ -104,6 +110,7 @@ async function openConversation(id) {
     api(`api/conversations/${id}/messages`),
   ]);
   titleEl.textContent = conversation.title;
+  updateDocumentTitle(conversation.title);
   if (modelEl) {
     modelEl.textContent = conversation.model_id || "";
   }
@@ -144,7 +151,8 @@ async function deleteConversation() {
   if (!window.confirm("Delete this conversation and all of its messages?")) return;
   await fetch(`api/conversations/${currentConversationId}`, { method: "DELETE" });
   currentConversationId = null;
-  titleEl.textContent = "Conversation";
+  titleEl.textContent = "";
+  updateDocumentTitle("");
   if (modelEl) modelEl.textContent = modelSelect ? modelSelect.value : "";
   renderMessages([]);
   await loadConversations();
@@ -248,5 +256,6 @@ window.addEventListener("resize", () => {
 });
 
 loadConversations().catch((error) => {
+  updateDocumentTitle("Error");
   messagesEl.innerHTML = `<article class="message message-assistant"><div class="role">error</div><pre>${escapeHtml(error.message)}</pre></article>`;
 });
