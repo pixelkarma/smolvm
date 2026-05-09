@@ -104,6 +104,7 @@ func (a *App) initializeSettings() error {
 
 func (a *App) Routes() http.Handler {
 	mux := http.NewServeMux()
+	mux.Handle("/static/", a.requireAuthHandler(http.StripPrefix("/static/", http.FileServer(http.Dir("static")))))
 	mux.HandleFunc("/internal/instance-config", a.handleInternalInstanceConfig)
 	mux.HandleFunc("/login", a.handleLogin)
 	mux.HandleFunc("/logout", a.handleLogout)
@@ -128,6 +129,17 @@ func (a *App) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 		}
 		next(w, r)
 	}
+}
+
+func (a *App) requireAuthHandler(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cookie, err := r.Cookie(sessionCookieName)
+		if err != nil || !a.sessions.valid(cookie.Value) {
+			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
