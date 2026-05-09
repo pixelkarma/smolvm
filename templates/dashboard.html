@@ -1,99 +1,138 @@
 {{define "dashboard.html"}}
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>smolvm Admin</title>
-  {{template "styles" .}}
-</head>
-<body>
-  {{template "topnav" .}}
-  <main class="stack">
-    <div class="card">
-      <div class="actions" style="justify-content: space-between;">
-        <div>
-          <h1 style="margin:0 0 6px 0;">Agent Instances</h1>
-          <div class="muted">Admin host: <span class="mono">{{.AdminHost}}</span>. Project web ports are public. The private agent UI stays behind this admin.</div>
-        </div>
-        <a class="btn" href="/instances/new">New Instance</a>
-      </div>
-    </div>
-    <div class="card">
-      {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
-      {{if .Instances}}
-      <table>
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Status</th>
-            <th>Active</th>
-            <th>Resources</th>
-            <th>Links</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {{range .Instances}}
-          <tr data-agent-url="{{.ShelleyURL}}">
-            <td>
-              <div><strong>{{.Name}}</strong></div>
-              <div class="muted mono">{{.Slug}}</div>
-            </td>
-            <td><span class="status {{.Status}}">{{.Status}}</span></td>
-            <td><span class="status checking js-active-status">checking</span></td>
-            <td>{{.MemoryMB}} MB, {{.CPUCount}} CPU, {{.DiskMB}} MB disk</td>
-            <td>
-              <div class="actions">
-                <a class="btn secondary" href="{{.ShelleyURL}}" target="_blank" rel="noreferrer">Agent</a>
-                <a class="btn secondary" href="/instances/{{.ID}}/terminal" target="_blank" rel="noreferrer">Terminal</a>
-                <a class="btn secondary" href="{{.AppURL}}" target="_blank" rel="noreferrer">Web App</a>
-              </div>
-            </td>
-            <td>
-              <details class="menu">
-                <summary class="icon-btn" aria-label="Instance actions">...</summary>
-                <div class="menu-panel">
-                  <form class="menu-form" method="post" action="/instances/{{.ID}}/start"><button type="submit">Start</button></form>
-                  <form class="menu-form" method="post" action="/instances/{{.ID}}/stop"><button class="secondary" type="submit">Stop</button></form>
-                  <form class="menu-form" method="post" action="/instances/{{.ID}}/delete" onsubmit="return confirm('Delete this instance and all files?');"><button class="danger" type="submit">Delete</button></form>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>smolvm Admin</title>
+    {{template "styles" .}}
+  </head>
+  <body>
+    {{template "topnav" .}}
+    <main class="stack">
+      <div class="card">
+        {{if .Error}}
+        <div class="error">{{.Error}}</div>
+        {{end}} {{if .Instances}}
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Status</th>
+              <th>Active</th>
+              <th>Resources</th>
+              <th>Links</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{range .Instances}}
+            <tr data-agent-url="{{.ShelleyURL}}">
+              <td>
+                <div><strong>{{.Name}}</strong></div>
+                <div class="muted mono">{{.Slug}}</div>
+              </td>
+              <td><span class="status {{.Status}}">{{.Status}}</span></td>
+              <td>
+                <span class="status checking js-active-status">checking</span>
+              </td>
+              <td>{{.MemoryMB}} MB, {{.CPUCount}} CPU, {{.DiskMB}} MB disk</td>
+              <td>
+                <div class="actions">
+                  <a
+                    class="btn secondary"
+                    href="{{.ShelleyURL}}"
+                    target="_blank"
+                    rel="noreferrer"
+                    >Agent</a
+                  >
+                  <a
+                    class="btn secondary"
+                    href="/instances/{{.ID}}/terminal"
+                    target="_blank"
+                    rel="noreferrer"
+                    >Terminal</a
+                  >
+                  <a
+                    class="btn secondary"
+                    href="{{.AppURL}}"
+                    target="_blank"
+                    rel="noreferrer"
+                    >Web App</a
+                  >
                 </div>
-              </details>
-            </td>
-          </tr>
-          {{end}}
-        </tbody>
-      </table>
-      {{else}}
-      <div class="muted">No instances yet.</div>
-      {{end}}
-    </div>
-  </main>
-  <script>
-    (() => {
-      const rows = document.querySelectorAll('tr[data-agent-url]');
-      for (const row of rows) {
-        const statusEl = row.querySelector('.js-active-status');
-        const url = row.dataset.agentUrl;
-        if (!statusEl || !url) continue;
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 10000);
-        fetch(url, { method: 'OPTIONS', signal: controller.signal, credentials: 'same-origin' })
-          .then((response) => {
-            if (!response.ok) {
-              throw new Error(`status ${response.status}`);
-            }
-            statusEl.textContent = 'active';
-            statusEl.className = 'status active js-active-status';
+              </td>
+              <td>
+                <details class="menu">
+                  <summary class="icon-btn" aria-label="Instance actions">
+                    ...
+                  </summary>
+                  <div class="menu-panel">
+                    <form
+                      class="menu-form"
+                      method="post"
+                      action="/instances/{{.ID}}/start"
+                    >
+                      <button type="submit">Start</button>
+                    </form>
+                    <form
+                      class="menu-form"
+                      method="post"
+                      action="/instances/{{.ID}}/stop"
+                    >
+                      <button class="secondary" type="submit">Stop</button>
+                    </form>
+                    <form
+                      class="menu-form"
+                      method="post"
+                      action="/instances/{{.ID}}/delete"
+                      onsubmit="
+                        return confirm('Delete this instance and all files?');
+                      "
+                    >
+                      <button class="danger" type="submit">Delete</button>
+                    </form>
+                  </div>
+                </details>
+              </td>
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
+        {{else}}
+        <div class="muted">No instances yet.</div>
+        {{end}}
+      </div>
+    </main>
+    <script>
+      (() => {
+        const rows = document.querySelectorAll("tr[data-agent-url]");
+        for (const row of rows) {
+          const statusEl = row.querySelector(".js-active-status");
+          const url = row.dataset.agentUrl;
+          if (!statusEl || !url) continue;
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 10000);
+          fetch(url, {
+            method: "OPTIONS",
+            signal: controller.signal,
+            credentials: "same-origin",
           })
-          .catch(() => {
-            statusEl.textContent = 'inactive';
-            statusEl.className = 'status inactive js-active-status';
-          })
-          .finally(() => clearTimeout(timer));
-      }
-    })();
-  </script>
-</body>
+            .then((response) => {
+              if (!response.ok) {
+                throw new Error(`status ${response.status}`);
+              }
+              statusEl.textContent = "active";
+              statusEl.className = "status active js-active-status";
+            })
+            .catch(() => {
+              statusEl.textContent = "inactive";
+              statusEl.className = "status inactive js-active-status";
+            })
+            .finally(() => clearTimeout(timer));
+        }
+      })();
+    </script>
+  </body>
 </html>
 {{end}}
