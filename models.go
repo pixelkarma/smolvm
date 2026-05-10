@@ -43,6 +43,7 @@ type InstanceRuntime struct {
 	DiskImagePath   string
 	SerialLogPath   string
 	PIDPath         string
+	QMPPath         string
 	SSHPort         int
 }
 

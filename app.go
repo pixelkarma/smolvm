@@ -492,6 +492,7 @@ func (a *App) runtimeFor(inst Instance) InstanceRuntime {
 		DiskImagePath:   filepath.Join(base, "disk.qcow2"),
 		SerialLogPath:   filepath.Join(base, "serial.log"),
 		PIDPath:         filepath.Join(base, "qemu.pid"),
+		QMPPath:         filepath.Join(base, "qmp.sock"),
 		SSHPort:         10000 + int(inst.ID),
 	}
 }

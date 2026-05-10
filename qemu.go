@@ -77,6 +77,8 @@ func prepareGuestDisk(rt InstanceRuntime, cfg Config) error {
 }
 
 func launchQEMU(rt InstanceRuntime, inst Instance, cfg Config) error {
+	_ = os.Remove(rt.QMPPath)
+
 	netdev := fmt.Sprintf(
 		"user,id=net0,hostfwd=tcp::%d-:22,hostfwd=tcp:127.0.0.1:%d-:9000,hostfwd=tcp::%d-:80",
 		rt.SSHPort,
@@ -88,6 +90,7 @@ func launchQEMU(rt InstanceRuntime, inst Instance, cfg Config) error {
 		"-m", strconv.Itoa(inst.MemoryMB),
 		"-smp", strconv.Itoa(inst.CPUCount),
 		"-smbios", fmt.Sprintf("type=1,serial=smolvm-instance:%d", inst.ID),
+		"-qmp", "unix:" + rt.QMPPath + ",server,nowait",
 		"-drive", "file=" + rt.DiskImagePath + ",format=qcow2,if=virtio",
 		"-netdev", netdev,
 		"-device", "virtio-net,netdev=net0",
@@ -116,6 +119,7 @@ func stopInstanceRuntime(rt InstanceRuntime, cfg Config) error {
 		}
 	}
 	_ = os.Remove(rt.PIDPath)
+	_ = os.Remove(rt.QMPPath)
 	return nil
 }
 
