@@ -85,6 +85,15 @@
                     <form
                       class="menu-form"
                       method="post"
+                      action="/instances/{{.ID}}/shutdown"
+                    >
+                      <button class="secondary" type="submit">
+                        Shutdown...
+                      </button>
+                    </form>
+                    <form
+                      class="menu-form"
+                      method="post"
                       action="/instances/{{.ID}}/delete"
                       onsubmit="
                         return confirm('Delete this instance and all files?');

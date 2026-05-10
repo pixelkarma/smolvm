@@ -292,6 +292,8 @@ func (a *App) handleInstanceRoutes(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 	case "start":
 		a.handleStartInstance(w, r, id)
+	case "shutdown":
+		a.handleShutdownInstance(w, r, id)
 	case "stop":
 		a.handleStopInstance(w, r, id)
 	case "delete":
