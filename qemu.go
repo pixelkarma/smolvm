@@ -61,6 +61,23 @@ func (a *App) instanceStatus(inst Instance) string {
 	return "stopped"
 }
 
+func (a *App) instanceUptime(inst Instance) (string, error) {
+	pid, _, err := findQEMUProcess(a.runtimeFor(inst), inst, a.cfg)
+	if err != nil || pid <= 0 {
+		return "stopped", nil
+	}
+	cmd := exec.Command("ps", "-o", "etime=", "-p", strconv.Itoa(pid))
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	uptime := strings.TrimSpace(string(out))
+	if uptime == "" {
+		return "running", nil
+	}
+	return uptime, nil
+}
+
 func instanceLogs(inst Instance, rt InstanceRuntime) (string, error) {
 	data, err := os.ReadFile(rt.SerialLogPath)
 	if err != nil {

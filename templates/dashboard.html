@@ -27,7 +27,10 @@
           </thead>
           <tbody>
             {{range .Instances}}
-            <tr data-agent-url="{{.AgentURL}}">
+            <tr
+              data-agent-url="{{.AgentURL}}"
+              data-uptime-url="/instances/{{.ID}}/uptime"
+            >
               <td>
                 <div><strong>{{.Name}}</strong></div>
                 <div class="muted mono">{{.Slug}}</div>
@@ -36,7 +39,10 @@
               <td>
                 <span class="status checking js-active-status">checking</span>
               </td>
-              <td>{{.MemoryMB}} MB, {{.CPUCount}} CPU, {{.DiskMB}} MB disk</td>
+              <td>
+                <div>{{.MemoryMB}} MB, {{.CPUCount}} CPU, {{.DiskMB}} MB disk</div>
+                <div class="muted js-uptime">uptime: checking</div>
+              </td>
               <td>
                 <div class="actions">
                   <a
@@ -118,7 +124,9 @@
         const rows = document.querySelectorAll("tr[data-agent-url]");
         for (const row of rows) {
           const statusEl = row.querySelector(".js-active-status");
+          const uptimeEl = row.querySelector(".js-uptime");
           const url = row.dataset.agentUrl;
+          const uptimeUrl = row.dataset.uptimeUrl;
           if (!statusEl || !url) continue;
           const controller = new AbortController();
           const timer = setTimeout(() => controller.abort(), 10000);
@@ -139,6 +147,22 @@
               statusEl.className = "status inactive js-active-status";
             })
             .finally(() => clearTimeout(timer));
+          if (uptimeEl && uptimeUrl) {
+            fetch(uptimeUrl, { credentials: "same-origin" })
+              .then((response) => {
+                if (!response.ok) {
+                  throw new Error(`status ${response.status}`);
+                }
+                return response.text();
+              })
+              .then((text) => {
+                const uptime = text.trim() || "unknown";
+                uptimeEl.textContent = `uptime: ${uptime}`;
+              })
+              .catch(() => {
+                uptimeEl.textContent = "uptime: unavailable";
+              });
+          }
         }
       })();
     </script>

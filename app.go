@@ -290,6 +290,8 @@ func (a *App) handleInstanceRoutes(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		http.NotFound(w, r)
+	case "uptime":
+		a.handleInstanceUptime(w, r, id)
 	case "start":
 		a.handleStartInstance(w, r, id)
 	case "shutdown":
@@ -415,6 +417,25 @@ func (a *App) handleLogs(w http.ResponseWriter, r *http.Request, id int64) {
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	_, _ = w.Write([]byte(logs))
+}
+
+func (a *App) handleInstanceUptime(w http.ResponseWriter, r *http.Request, id int64) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	inst, err := getInstance(a.db, id)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	uptime, err := a.instanceUptime(inst)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = w.Write([]byte(uptime))
 }
 
 func (a *App) handleStartInstance(w http.ResponseWriter, r *http.Request, id int64) {
