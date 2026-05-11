@@ -13,6 +13,7 @@ const trayCloseButton = document.getElementById("tray-close");
 const sidebarEl = document.querySelector(".sidebar");
 
 let currentConversationId = null;
+let currentMessages = [];
 const collapsedMessages = new Set();
 
 function updateDocumentTitle(title) {
@@ -52,19 +53,20 @@ function renderMessage(item) {
   const key = messageKey(item);
   const collapsed = collapsedMessages.has(key) || (defaultCollapsed(item) && !collapsedMessages.has(`open:${key}`));
   const preview = escapeHtml((item.content || "").split("\n")[0].slice(0, 120));
+  const loading = item.loading === true;
   return `
-    <article class="message message-${item.role}${collapsed ? " collapsed" : ""}" data-key="${key}">
+    <article class="message message-${item.role}${loading ? " message-loading" : ""}${collapsed ? " collapsed" : ""}" data-key="${key}">
       <div class="message-head" data-key="${key}">
         <div class="role">${item.role}</div>
       </div>
-      ${collapsed ? `<div class="message-preview">${preview}</div>` : ""}
-      <pre class="message-body">${escapeHtml(item.content)}</pre>
+      ${loading ? `<div class="message-loading-indicator" aria-label="Loading response"><span></span><span></span><span></span></div>` : `${collapsed ? `<div class="message-preview">${preview}</div>` : ""}<pre class="message-body">${escapeHtml(item.content)}</pre>`}
     </article>
   `;
 }
 
 function renderMessages(items) {
   items = Array.isArray(items) ? items : [];
+  currentMessages = items;
   messagesEl.innerHTML = items.map(renderMessage).join("");
   messagesEl.querySelectorAll(".message-head").forEach((header) => {
     header.addEventListener("click", () => {
@@ -77,7 +79,7 @@ function renderMessages(items) {
         collapsedMessages.add(key);
         collapsedMessages.delete(`open:${key}`);
       }
-      renderMessages(items);
+      renderMessages(currentMessages);
     });
   });
   messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -194,6 +196,21 @@ composer.addEventListener("submit", async (event) => {
   if (modelSelect) {
     modelSelect.disabled = true;
   }
+  const optimisticMessages = [
+    ...currentMessages,
+    {
+      id: `local-user-${Date.now()}`,
+      role: "user",
+      content,
+    },
+    {
+      id: `local-assistant-${Date.now()}`,
+      role: "assistant",
+      content: "",
+      loading: true,
+    },
+  ];
+  renderMessages(optimisticMessages);
   try {
     await api(`api/conversations/${currentConversationId}/messages`, {
       method: "POST",

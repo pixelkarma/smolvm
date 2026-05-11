@@ -206,6 +206,10 @@ button {
   background: #1f2937;
 }
 
+.message-loading .role {
+  margin-bottom: 0;
+}
+
 .role {
   color: #93c5fd;
   font-size: 12px;
@@ -225,6 +229,40 @@ button {
 
 .message.collapsed .message-body {
   display: none;
+}
+
+.message-loading-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+}
+
+.message-loading-indicator span {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #93c5fd;
+  animation: smolagent-bounce 900ms infinite ease-in-out;
+}
+
+.message-loading-indicator span:nth-child(2) {
+  animation-delay: 120ms;
+}
+
+.message-loading-indicator span:nth-child(3) {
+  animation-delay: 240ms;
+}
+
+@keyframes smolagent-bounce {
+  0%, 80%, 100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-4px);
+  }
 }
 
 pre {
