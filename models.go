@@ -60,7 +60,7 @@ type DashboardData struct {
 type InstanceView struct {
 	Instance
 	Status     string
-	ShelleyURL string
+	AgentURL   string
 	AppURL     string
 	CreatedAgo string
 }

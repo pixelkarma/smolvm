@@ -27,7 +27,7 @@
           </thead>
           <tbody>
             {{range .Instances}}
-            <tr data-agent-url="{{.ShelleyURL}}">
+            <tr data-agent-url="{{.AgentURL}}">
               <td>
                 <div><strong>{{.Name}}</strong></div>
                 <div class="muted mono">{{.Slug}}</div>
@@ -41,7 +41,7 @@
                 <div class="actions">
                   <a
                     class="btn secondary"
-                    href="{{.ShelleyURL}}"
+                    href="{{.AgentURL}}"
                     target="_blank"
                     rel="noreferrer"
                     >Agent</a

@@ -104,12 +104,12 @@ func (a *App) Routes() http.Handler {
 	mux.HandleFunc("/internal/instance-config", a.handleInternalInstanceConfig)
 	mux.HandleFunc("/login", a.handleLogin)
 	mux.HandleFunc("/logout", a.handleLogout)
-	mux.HandleFunc("/api/", a.requireAuth(a.handleShelleyRootProxy))
-	mux.HandleFunc("/version-check", a.requireAuth(a.handleShelleyRootProxy))
-	mux.HandleFunc("/diffs-worker.js", a.requireAuth(a.handleShelleyRootProxy))
-	mux.HandleFunc("/monaco-editor.js", a.requireAuth(a.handleShelleyRootProxy))
-	mux.HandleFunc("/monaco-editor.css", a.requireAuth(a.handleShelleyRootProxy))
-	mux.HandleFunc("/editor.worker.js", a.requireAuth(a.handleShelleyRootProxy))
+	mux.HandleFunc("/api/", a.requireAuth(a.handleAgentRootProxy))
+	mux.HandleFunc("/version-check", a.requireAuth(a.handleAgentRootProxy))
+	mux.HandleFunc("/diffs-worker.js", a.requireAuth(a.handleAgentRootProxy))
+	mux.HandleFunc("/monaco-editor.js", a.requireAuth(a.handleAgentRootProxy))
+	mux.HandleFunc("/monaco-editor.css", a.requireAuth(a.handleAgentRootProxy))
+	mux.HandleFunc("/editor.worker.js", a.requireAuth(a.handleAgentRootProxy))
 	mux.HandleFunc("/instances/", a.requireAuth(a.handleInstanceRoutes))
 	mux.HandleFunc("/settings", a.requireAuth(a.handleSettings))
 	mux.HandleFunc("/", a.requireAuth(a.handleDashboard))
@@ -191,7 +191,7 @@ func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		views = append(views, InstanceView{
 			Instance:   inst,
 			Status:     status,
-			ShelleyURL: fmt.Sprintf("/instances/%d/open", inst.ID),
+			AgentURL:   fmt.Sprintf("/instances/%d/open", inst.ID),
 			AppURL:     appURL(adminHost, inst.WebPort),
 			CreatedAgo: "",
 		})
@@ -279,7 +279,7 @@ func (a *App) handleInstanceRoutes(w http.ResponseWriter, r *http.Request) {
 	}
 	switch parts[1] {
 	case "open":
-		a.handleOpenShelley(w, r, id)
+		a.handleOpenAgent(w, r, id)
 	case "terminal":
 		if len(parts) == 2 {
 			a.handleTerminalPage(w, r, id)
@@ -300,14 +300,14 @@ func (a *App) handleInstanceRoutes(w http.ResponseWriter, r *http.Request) {
 		a.handleDeleteInstance(w, r, id)
 	case "logs":
 		a.handleLogs(w, r, id)
-	case "shelley":
-		a.handleShelleyProxy(w, r, id)
+	case "agent", "shelley":
+		a.handleAgentProxy(w, r, id, parts[1])
 	default:
 		http.NotFound(w, r)
 	}
 }
 
-func (a *App) handleOpenShelley(w http.ResponseWriter, r *http.Request, id int64) {
+func (a *App) handleOpenAgent(w http.ResponseWriter, r *http.Request, id int64) {
 	if _, err := getInstance(a.db, id); err != nil {
 		http.NotFound(w, r)
 		return
@@ -319,17 +319,17 @@ func (a *App) handleOpenShelley(w http.ResponseWriter, r *http.Request, id int64
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 	})
-	http.Redirect(w, r, fmt.Sprintf("/instances/%d/shelley/", id), http.StatusSeeOther)
+	http.Redirect(w, r, fmt.Sprintf("/instances/%d/agent/", id), http.StatusSeeOther)
 }
 
-func (a *App) handleShelleyProxy(w http.ResponseWriter, r *http.Request, id int64) {
+func (a *App) handleAgentProxy(w http.ResponseWriter, r *http.Request, id int64, routeName string) {
 	inst, err := getInstance(a.db, id)
 	if err != nil {
 		http.NotFound(w, r)
 		return
 	}
 	target, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", inst.ShelleyPort))
-	prefix := fmt.Sprintf("/instances/%d/shelley", id)
+	prefix := fmt.Sprintf("/instances/%d/%s", id, routeName)
 	proxy := httputil.NewSingleHostReverseProxy(target)
 	proxy.Director = func(req *http.Request) {
 		originalHost := req.Host
@@ -345,13 +345,13 @@ func (a *App) handleShelleyProxy(w http.ResponseWriter, r *http.Request, id int6
 		}
 	}
 	proxy.ModifyResponse = func(resp *http.Response) error {
-		return rewriteShelleyResponse(resp, id)
+		return rewriteAgentResponse(resp, id)
 	}
 	proxy.ServeHTTP(w, r)
 }
 
-func (a *App) handleShelleyRootProxy(w http.ResponseWriter, r *http.Request) {
-	inst, err := a.instanceFromShelleyReferer(r)
+func (a *App) handleAgentRootProxy(w http.ResponseWriter, r *http.Request) {
+	inst, err := a.instanceFromAgentReferer(r)
 	if err != nil {
 		http.NotFound(w, r)
 		return
@@ -370,7 +370,7 @@ func (a *App) handleShelleyRootProxy(w http.ResponseWriter, r *http.Request) {
 	proxy.ServeHTTP(w, r)
 }
 
-func (a *App) instanceFromShelleyReferer(r *http.Request) (Instance, error) {
+func (a *App) instanceFromAgentReferer(r *http.Request) (Instance, error) {
 	if cookie, err := r.Cookie("smolvm_instance"); err == nil && cookie.Value != "" {
 		if id, err := strconv.ParseInt(cookie.Value, 10, 64); err == nil {
 			if inst, err := getInstance(a.db, id); err == nil {
@@ -388,8 +388,8 @@ func (a *App) instanceFromShelleyReferer(r *http.Request) (Instance, error) {
 	}
 	path := strings.TrimPrefix(u.Path, "/instances/")
 	parts := strings.Split(strings.Trim(path, "/"), "/")
-	if len(parts) < 2 || parts[1] != "shelley" {
-		return Instance{}, fmt.Errorf("not a shelley referer path")
+	if len(parts) < 2 || (parts[1] != "agent" && parts[1] != "shelley") {
+		return Instance{}, fmt.Errorf("not an agent referer path")
 	}
 	id, err := strconv.ParseInt(parts[0], 10, 64)
 	if err != nil {

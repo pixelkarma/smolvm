@@ -68,7 +68,7 @@ func parseInstanceForm(r *http.Request) (Instance, error) {
 	return inst, nil
 }
 
-func rewriteShelleyResponse(resp *http.Response, id int64) error {
+func rewriteAgentResponse(resp *http.Response, id int64) error {
 	ct := resp.Header.Get("Content-Type")
 	mediaType, _, _ := mime.ParseMediaType(ct)
 	if mediaType != "text/html" &&
@@ -83,7 +83,7 @@ func rewriteShelleyResponse(resp *http.Response, id int64) error {
 		return err
 	}
 	_ = resp.Body.Close()
-	prefix := fmt.Sprintf("/instances/%d/shelley", id)
+	prefix := fmt.Sprintf("/instances/%d/agent", id)
 	rewritten := strings.ReplaceAll(string(body), "/api/", prefix+"/api/")
 	rewritten = strings.ReplaceAll(rewritten, `"/api`, `"`+prefix+`/api`)
 	rewritten = strings.ReplaceAll(rewritten, `'/api`, `'`+prefix+`/api`)
