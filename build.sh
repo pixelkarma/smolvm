@@ -95,7 +95,7 @@ host_go_builds() {
   (
     cd "$SMOLVM_DIR"
     go build -buildvcs=false -o "$SMOLVM_BIN_DIR/smolvm-admin" ./
-    GOOS=linux GOARCH=amd64 go build -buildvcs=false -o "$SMOLVM_DIR/bin/smolagent-linux-amd64" ./cmd/smolagent
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -buildvcs=false -o "$SMOLVM_DIR/bin/smolagent-linux-amd64" ./cmd/smolagent
   )
 }
 
