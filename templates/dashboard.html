@@ -91,6 +91,13 @@
                     <form
                       class="menu-form"
                       method="post"
+                      action="/instances/{{.ID}}/restart"
+                    >
+                      <button class="secondary" type="submit">Restart</button>
+                    </form>
+                    <form
+                      class="menu-form"
+                      method="post"
                       action="/instances/{{.ID}}/shutdown"
                     >
                       <button class="secondary" type="submit">

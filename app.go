@@ -295,6 +295,8 @@ func (a *App) handleInstanceRoutes(w http.ResponseWriter, r *http.Request) {
 		a.handleInstanceUptime(w, r, id)
 	case "start":
 		a.handleStartInstance(w, r, id)
+	case "restart":
+		a.handleRestartInstance(w, r, id)
 	case "shutdown":
 		a.handleShutdownInstance(w, r, id)
 	case "stop":
@@ -467,6 +469,22 @@ func (a *App) handleStopInstance(w http.ResponseWriter, r *http.Request, id int6
 	}
 	go func(inst Instance) {
 		_ = a.stopInstance(inst)
+	}(inst)
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+func (a *App) handleRestartInstance(w http.ResponseWriter, r *http.Request, id int64) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	inst, err := getInstance(a.db, id)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	go func(inst Instance) {
+		_ = a.startInstance(inst)
 	}(inst)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
