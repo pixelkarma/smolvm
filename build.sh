@@ -33,14 +33,35 @@ resolve_openai_key() {
   fi
 }
 
+json_escape() {
+  local value="$1"
+  value=${value//\\/\\\\}
+  value=${value//\"/\\\"}
+  value=${value//$'\n'/\\n}
+  value=${value//$'\t'/\\t}
+  value=${value//$'\r'/}
+  printf '%s' "$value"
+}
+
+sanitize_terminal_input() {
+  printf '%s' "$1" | LC_ALL=C tr -d '\000-\037\177'
+}
+
 prompt_admin_password() {
   local default_password="smolvm"
-  if [[ ! -t 0 ]]; then
+  local tty="/dev/tty"
+  if [[ ! -r "$tty" || ! -w "$tty" ]]; then
     printf '%s\n' "$default_password"
     return
   fi
-  printf 'Admin password [default: %s]: ' "$default_password" >&2
-  IFS= read -r password
+  printf 'Admin password [default: %s]: ' "$default_password" >"$tty"
+  IFS= read -r password <"$tty" || password=""
+  local sanitized
+  sanitized=$(sanitize_terminal_input "$password")
+  if [[ "$sanitized" != "$password" ]]; then
+    printf '\nIgnored non-printable terminal control bytes in password input.\n' >"$tty"
+  fi
+  password="$sanitized"
   if [[ -z "$password" ]]; then
     password="$default_password"
   fi
@@ -348,15 +369,17 @@ write_host_config() {
   openai_key=$(resolve_openai_key || true)
   local admin_password
   admin_password=$(prompt_admin_password)
+  local qemu_binary
+  qemu_binary=$(command -v qemu-system-x86_64)
   cat > "$SMOLVM_CONFIG_PATH" <<EOF
 {
   "listen_addr": ":8090",
-  "data_dir": "$SMOLVM_DATA_DIR",
-  "default_openai_api_key": "${openai_key}",
-  "admin_password": "${admin_password}",
-  "qemu_binary_path": "$(command -v qemu-system-x86_64)",
-  "template_image_path": "$GOLDEN_IMAGE_PATH",
-  "guest_ssh_key_path": "$GUEST_KEY_PATH"
+  "data_dir": "$(json_escape "$SMOLVM_DATA_DIR")",
+  "default_openai_api_key": "$(json_escape "$openai_key")",
+  "admin_password": "$(json_escape "$admin_password")",
+  "qemu_binary_path": "$(json_escape "$qemu_binary")",
+  "template_image_path": "$(json_escape "$GOLDEN_IMAGE_PATH")",
+  "guest_ssh_key_path": "$(json_escape "$GUEST_KEY_PATH")"
 }
 EOF
 }
