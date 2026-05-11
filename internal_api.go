@@ -2,8 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"io"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -81,4 +84,29 @@ func isInternalGuestRequest(r *http.Request) bool {
 	}
 	_, guestNet, _ := net.ParseCIDR("10.0.2.0/24")
 	return guestNet.Contains(ip)
+}
+
+func (a *App) handleInternalAgentBinary(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !isInternalGuestRequest(r) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	binaryPath := filepath.Join(filepath.Dir(a.cfg.DataDir), "bin", "smolagent-linux-amd64")
+	f, err := os.Open(binaryPath)
+	if err != nil {
+		http.Error(w, "agent binary not found", http.StatusNotFound)
+		return
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err == nil {
+		w.Header().Set("Content-Length", strconv.FormatInt(info.Size(), 10))
+	}
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", `attachment; filename="smolagent-linux-amd64"`)
+	_, _ = io.Copy(w, f)
 }

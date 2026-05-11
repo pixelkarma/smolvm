@@ -101,6 +101,7 @@ func (a *App) Routes() http.Handler {
 	if err == nil {
 		mux.Handle("/static/", a.requireAuthHandler(http.StripPrefix("/static/", http.FileServer(http.FS(staticFiles)))))
 	}
+	mux.HandleFunc("/internal/agent-binary", a.handleInternalAgentBinary)
 	mux.HandleFunc("/internal/instance-config", a.handleInternalInstanceConfig)
 	mux.HandleFunc("/login", a.handleLogin)
 	mux.HandleFunc("/logout", a.handleLogout)

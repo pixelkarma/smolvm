@@ -95,7 +95,8 @@ host_go_builds() {
   (
     cd "$SMOLVM_DIR"
     go build -buildvcs=false -o "$SMOLVM_BIN_DIR/smolvm-admin" ./
-    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -buildvcs=false -o "$SMOLVM_DIR/bin/smolagent-linux-amd64" ./cmd/smolagent
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -buildvcs=false -o "$SMOLVM_BIN_DIR/smolagent-linux-amd64" ./cmd/smolagent
+    cp "$SMOLVM_BIN_DIR/smolagent-linux-amd64" "$SMOLVM_DIR/bin/smolagent-linux-amd64"
   )
 }
 
@@ -260,6 +261,19 @@ send -- "$pubkey\r"
 send "KEY\r"
 send "chmod 600 /root/.ssh/authorized_keys\r"
 send "install -m 755 /mnt/hostshare/bin/smolagent-linux-amd64 /usr/local/bin/smolagent\r"
+send "cat > /usr/local/bin/smolagent-bootstrap <<'BOOTSTRAP'\r"
+send "#!/bin/sh\r"
+send "set -eu\r"
+send "URL='http://10.0.2.2:8090/internal/agent-binary'\r"
+send "TMP='/tmp/smolagent.new'\r"
+send "DEST='/usr/local/bin/smolagent'\r"
+send "if curl -fsSL \"$URL\" -o \"$TMP\"; then\r"
+send "  chmod 755 \"$TMP\"\r"
+send "  mv \"$TMP\" \"$DEST\"\r"
+send "fi\r"
+send "exec \"$DEST\" --config /root/.smolvm/smolvm.config.json\r"
+send "BOOTSTRAP\r"
+send "chmod +x /usr/local/bin/smolagent-bootstrap\r"
 send "ssh-keygen -A\r"
 send "rc-update add sshd default\r"
 send "sed -i 's/^#\\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config\r"
@@ -274,8 +288,7 @@ send "AGENTS\r"
 send "cat > /etc/init.d/smolagentd <<'SERVICE'\r"
 send "#!/sbin/openrc-run\r"
 send "description=\"smolagent runtime\"\r"
-send "command=\"/usr/local/bin/smolagent\"\r"
-send "command_args=\"--config /root/.smolvm/smolvm.config.json\"\r"
+send "command=\"/usr/local/bin/smolagent-bootstrap\"\r"
 send "pidfile=\"/run/smolagent.pid\"\r"
 send "command_background=true\r"
 send "output_log=\"/var/log/smolagent.log\"\r"
